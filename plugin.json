@@ -1,0 +1,31 @@
+{
+  "slug": "tokus-tangent",
+  "name": "tokus-tangent",
+  "version": "1.0.0",
+  "license": "proprietary",
+  "brand": "tokus-tangent",
+  "author": "",
+  "authorEmail": "",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "modules": [
+    {
+      "slug": "RadioClient",
+      "name": "RadioClient",
+      "description": "A client for VCVRadio",
+      "tags": [
+        "External"
+      ]
+    }, {
+      "slug": "RadioBroadcast",
+      "name": "RadioBroadcast",
+      "description": "A broadcaster for VCVRadio",
+      "tags": [
+        "External"
+      ]
+    }
+  ]
+}
