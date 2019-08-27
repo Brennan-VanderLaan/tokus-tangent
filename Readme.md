@@ -33,7 +33,7 @@ Servers facilitate connection hand offs.
 
 
 #### WebClient (LISTENER)
-- Lets you pull a stereo stream via web client
+- Lets you pull a stereo stream via web client (how? do we need a 'relay' type of node?)
 
 #### Server
 - Tracks live sessions and serves as a central command and control point for the radio
@@ -92,10 +92,16 @@ raw wav data potentially will use huge amounts of bandwidth regardless of the tr
 
 It looks like this is a simple callback hook system so that should play nicely with the module setup.
 
+On the webclient I want to find out if multicast is the right approach to sending the same stream to many people,
+although this may not be an issue at all considering I don't expect heavy adoption.
+
 #### Compression
 
 We probably need to compress the audio data. That needs research / can be implemented when
-this moves towards living in the web instead of as a local project.
+this moves towards living in the web instead of as a local project. It also may be neat to offer the ability
+to use common compression algorithms intentionally as that may yield interesting effects on the sound.
+
+Need to look into what the licenses are around those, if they are open that could be a lot of fun.
 
 
 
