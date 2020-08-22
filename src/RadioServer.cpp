@@ -34,6 +34,7 @@ struct RadioServer : Module {
     ServerState moduleState = NOT_CONNECTED;
     int errorCounter = 0;
     int negotiateCounter = 0;
+    int acceptConnCounter = 0;
 
     bool fatalError = false;
 
@@ -137,6 +138,7 @@ struct RadioServer : Module {
             }
 
             listen(server, 1);
+            acceptConnCounter = 0;
             moduleState = ServerState::LISTENING;
         }
     }
@@ -154,11 +156,15 @@ struct RadioServer : Module {
     }
 
     void acceptConnection() {
-        client = accept(server, NULL, NULL);
-        if (client == INVALID_SOCKET) {
-            client = NULL;
-        } else {
-            moduleState = ServerState::NEGOTIATING;
+        acceptConnCounter += 1;
+        if (acceptConnCounter > 1000) {
+            acceptConnCounter = 0;
+            client = accept(server, NULL, NULL);
+            if (client == INVALID_SOCKET) {
+                client = NULL;
+            } else {
+                moduleState = ServerState::NEGOTIATING;
+            }
         }
     }
 
