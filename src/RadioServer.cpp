@@ -1,23 +1,27 @@
 //
-// Created by bvanderlaan on 8/27/19.
+// Created by bvanderlaan on 8/19/2020.
 //
 
+#include "network.h"
 #include "plugin.hpp"
 #include <winsock2.h>
-#include "network.h"
 
-enum ClientState {
+
+
+enum ServerState {
     NOT_CONNECTED,
-    CONNECTING,
+    LISTENING,
     CONNECTED,
+    NEGOTIATING,
     ERROR_STATE,
     NUM_STATES
 };
 
 
-struct RadioClient : Module {
+struct RadioServer : Module {
     WSADATA WSAData;
     SOCKET server;
+    SOCKET client;
     SOCKADDR_IN addr;
     dsp::RingBuffer < dsp::Frame<2>, 512> inputBuffer;
     dsp::RingBuffer < dsp::Frame<2>, 512> outputBuffer;
@@ -25,14 +29,14 @@ struct RadioClient : Module {
     dsp::SampleRateConverter<2> inputSrc;
     dsp::SampleRateConverter<2> outputSrc;
 
-    std::string hostField = "127.0.0.1";
     std::string portField = "5555";
 
-    ClientState moduleState = NOT_CONNECTED;
+    ServerState moduleState = NOT_CONNECTED;
     int errorCounter = 0;
     int negotiateCounter = 0;
 
-    TextField* hostFieldWidget;
+    bool fatalError = false;
+
     TextField* portFieldWidget;
     TextField* blockSizeFieldWidget;
     TextField* bufferSizeFieldWidget;
@@ -61,8 +65,8 @@ struct RadioClient : Module {
         NUM_OUTPUTS
     };
 
-    RadioClient() {
-        config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, ClientState::NUM_STATES);
+    RadioServer() {
+        config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, ServerState::NUM_STATES);
         //configParam(STATION_PARAM, 0.0, 1.0, 1.0, "Station Tune", "%", 0, 100);
         //configParam(LEVEL_PARAM, 0.0, 1.0, 1.0, "Out level", "%", 0, 100);
 
@@ -70,59 +74,37 @@ struct RadioClient : Module {
         WSAStartup(MAKEWORD(2,0), &WSAData);
         server = socket(AF_INET, SOCK_STREAM, 0);
 
-        moduleState = ClientState::ERROR_STATE;
-        INFO("Set ERROR state");
+        u_long on = 1;
+        int err = setsockopt(server, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
 
+        if (err < 0) {
+            INFO("Couldn't set socket option!");
+            fatalError = true;
+        }
+
+        ioctlsocket(server, FIONBIO, &on);
+        if (err < 0)
+        {
+            INFO("Couldn't set non-blocking socket option!");
+            fatalError = true;
+        }
+
+        moduleState = ServerState::ERROR_STATE;
     }
 
 
-    ~RadioClient() {
+    ~RadioServer() {
         closesocket(server);
         WSACleanup();
     }
 
 
-
     void getData() {
-//        char buffer[1024] = {};
-//        recv(server, buffer, sizeof(int) * 2, 0);
-//        dataPacket * p = (dataPacket *)buffer;
-//        int toRecv = p->len * p->channels * sizeof(float);
-//
-//        char data[toRecv];
-//        memset(data, 0, toRecv);
-//        recv(server, data, toRecv, 0);
-//        p->data = (float *)data;
+
     }
 
     void sendData() {
-//        float in_1 = inputs[IN1_INPUT].getVoltage();
-//        float in_2 = inputs[IN2_INPUT].getVoltage();
-//        dsp::Frame<2, float> frame;
-//        frame.samples[0] = in_1;
-//        frame.samples[1] = in_2;
-//
-//        const int CHUNK_SIZE = 128;
-//        if (!inputBuffer.full()) {
-//            inputBuffer.push(frame);
-//        } else {
-//            char buffer[sizeof(dataPacket) + (sizeof(float) * CHUNK_SIZE)]={};
-//            dataPacket * p = (dataPacket *)buffer;
-//
-//            p->len = inputBuffer.size();
-//            p->channels = 2;
-//
-//            int i = 0;
-//            while (!inputBuffer.empty() && i < CHUNK_SIZE) {
-//                dsp::Frame<2, float> sample = inputBuffer.shift();
-//                p->data[i] = sample.samples[0];
-//                p->data[i+1] = sample.samples[1];
-//                i += 2;
-//            }
-//
-//
-//            send(server, buffer, sizeof(buffer), 0);
-//        }
+
     }
 
     void bufferInputSamples(const ProcessArgs &args) {
@@ -130,16 +112,10 @@ struct RadioClient : Module {
         float in_2 = inputs[IN2_INPUT].getVoltage();
     }
 
-    void tryToConnect() {
-        if (moduleState == ClientState::NOT_CONNECTED) {
+    void tryToListen() {
+        if (moduleState == ServerState::NOT_CONNECTED) {
 
             addr.sin_family = AF_INET;
-
-            if (hostField.length() == 0) {
-                addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-            } else {
-                addr.sin_addr.s_addr = inet_addr(hostField.c_str());
-            }
 
             if (portField.length() == 0) {
                 addr.sin_port = htons(5555);
@@ -148,16 +124,20 @@ struct RadioClient : Module {
             }
 
             if (addr.sin_port < 1024 || addr.sin_port >= 65535) {
-                moduleState = ClientState::ERROR_STATE;
+                moduleState = ServerState::ERROR_STATE;
                 return;
             }
 
-            int err = connect(server, (SOCKADDR *)&addr, sizeof(addr));
-            if (err == 0) {
-                moduleState = ClientState::CONNECTING;
-            } else {
-                moduleState = ClientState::ERROR_STATE;
+            addr.sin_addr.s_addr = inet_addr("0.0.0.0");
+            int err = bind(server, (SOCKADDR *)&addr, sizeof(addr));
+
+            if (err == SOCKET_ERROR) {
+                moduleState = ServerState::ERROR_STATE;
+                return;
             }
+
+            listen(server, 1);
+            moduleState = ServerState::LISTENING;
         }
     }
 
@@ -166,11 +146,20 @@ struct RadioClient : Module {
         //TODO...
         if (negotiateCounter > (int)(args.sampleRate * 3)) {
             negotiateCounter = 0;
-            moduleState = ClientState::CONNECTED;
+            moduleState = ServerState::CONNECTED;
         } else {
             negotiateCounter += 1;
         }
 
+    }
+
+    void acceptConnection() {
+        client = accept(server, NULL, NULL);
+        if (client == INVALID_SOCKET) {
+            client = NULL;
+        } else {
+            moduleState = ServerState::NEGOTIATING;
+        }
     }
 
     void clearBuffers() {
@@ -179,7 +168,7 @@ struct RadioClient : Module {
     }
 
     void resetLights() {
-        for (int i = 0; i < ClientState::NUM_STATES; i++) {
+        for (int i = 0; i < ServerState::NUM_STATES; i++) {
             lights[i].setSmoothBrightness(0.0f, .4f);
         }
     }
@@ -188,35 +177,42 @@ struct RadioClient : Module {
 
         //TODO: Maybe don't reset the lights per frame?
         switch (moduleState) {
-            case ClientState::CONNECTED:
+            case ServerState::CONNECTED:
                 resetLights();
-                lights[ClientState::CONNECTED].setSmoothBrightness(10.0f, .1f);
+                lights[ServerState::CONNECTED].setSmoothBrightness(10.0f, .1f);
                 bufferInputSamples(args);
                 sendData();
                 getData();
                 break;
-            case ClientState::CONNECTING:
+            case ServerState::NEGOTIATING:
                 resetLights();
-                lights[ClientState::CONNECTING].setSmoothBrightness(10.0f, .1f);
-                negotiateSettings(args);
-                bufferInputSamples(args);
-                break;
-            case ClientState::NOT_CONNECTED:
-                resetLights();
-                lights[ClientState::NOT_CONNECTED].setSmoothBrightness(10.0f, .1f);
+                lights[ServerState::NEGOTIATING].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
-                tryToConnect();
+                negotiateSettings(args);
                 break;
-            case ClientState::ERROR_STATE:
+            case ServerState::LISTENING:
                 resetLights();
-                lights[ClientState::ERROR_STATE].setSmoothBrightness(10.0f, .1f);
-
-                //wait 5s
-                if (errorCounter > (int)(args.sampleRate * 5)) {
-                    errorCounter = 0;
-                    moduleState = ClientState::NOT_CONNECTED;
-                } else {
-                    errorCounter += 1;
+                lights[ServerState::LISTENING].setSmoothBrightness(10.0f, .1f);
+                clearBuffers();
+                acceptConnection();
+                break;
+            case ServerState::NOT_CONNECTED:
+                resetLights();
+                lights[ServerState::NOT_CONNECTED].setSmoothBrightness(10.0f, .1f);
+                clearBuffers();
+                tryToListen();
+                break;
+            case ServerState::ERROR_STATE:
+                resetLights();
+                lights[ServerState::ERROR_STATE].setSmoothBrightness(10.0f, .1f);
+                if (!fatalError) {
+                    //wait 5s
+                    if (errorCounter > (int) (args.sampleRate * 5)) {
+                        errorCounter = 0;
+                        moduleState = ServerState::NOT_CONNECTED;
+                    } else {
+                        errorCounter += 1;
+                    }
                 }
                 break;
             default:
@@ -228,16 +224,15 @@ struct RadioClient : Module {
 };
 
 
-struct RadioClientWidget : ModuleWidget {
+struct RadioServerWidget : ModuleWidget {
 
-    TextField* hostField;
     TextField* portField;
     TextField* blockSizeField;
     TextField* bufferSizeField;
 
-    RadioClientWidget(RadioClient* module) {
+    RadioServerWidget(RadioServer* module) {
         setModule(module);
-        setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/RClient.svg")));
+        setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/RServer.svg")));
 
         addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
         addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
@@ -248,22 +243,17 @@ struct RadioClientWidget : ModuleWidget {
 //        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.7, 26.422)), module, RadioClient::STATION_PARAM));
 //        addParam(createParam<RoundLargeBlackKnob>(mm2px(Vec(6.35, 74.80544)), module, RadioClient::LEVEL_PARAM));
 
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(3.2, 70.9)), module, ClientState::ERROR_STATE));
-        addChild((Widget *)createLight<SmallLight<YellowLight>>(mm2px(Vec(9.082, 70.9)), module, ClientState::NOT_CONNECTED));
-        addChild((Widget *)createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module, ClientState::CONNECTING));
-        addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module, ClientState::CONNECTED));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(3.2, 70.9)), module, ServerState::ERROR_STATE));
+        addChild((Widget *)createLight<SmallLight<YellowLight>>(mm2px(Vec(9.082, 70.9)), module, ServerState::NOT_CONNECTED));
+        addChild((Widget *)createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module, ServerState::LISTENING));
+        addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module, ServerState::NEGOTIATING));
+        addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(26.705, 70.9)), module, ServerState::CONNECTED));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioClient::OUT1_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioClient::OUT2_OUTPUT));
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioServer::OUT1_OUTPUT));
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioServer::OUT2_OUTPUT));
 
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioClient::IN1_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.933, 93.0)), module, RadioClient::IN2_INPUT));
-
-        hostField = createWidget<TextField>(mm2px(Vec(2.8, 18)));
-        hostField->box.size = mm2px(Vec(24, 8));
-        hostField->placeholder = "127.0.0.1";
-        hostField->multiline = false;
-        addChild(hostField);
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioServer::IN1_INPUT));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.933, 93.0)), module, RadioServer::IN2_INPUT));
 
         portField = createWidget<TextField>(mm2px(Vec(2.8, 29)));
         portField->box.size = mm2px(Vec(24, 8));
@@ -285,7 +275,7 @@ struct RadioClientWidget : ModuleWidget {
     }
 
     struct RadioTextItem : MenuItem {
-        RadioClient* module;
+        RadioServer* module;
         std::string value = "";
         void onAction(const event::Action& e) override {
         }
@@ -296,7 +286,7 @@ struct RadioClientWidget : ModuleWidget {
     };
 
     struct RadioIntItem : MenuItem {
-        RadioClient* module;
+        RadioServer* module;
         int value = 0;
         void onAction(const event::Action& e) override {
         }
@@ -307,7 +297,7 @@ struct RadioClientWidget : ModuleWidget {
     };
 
     void appendContextMenu(Menu* menu) override {
-        RadioClient* module = dynamic_cast<RadioClient*>(this->module);
+        RadioServer* module = dynamic_cast<RadioServer*>(this->module);
         assert(module);
 
 //        menu->addChild(new MenuSeparator);
@@ -323,5 +313,5 @@ struct RadioClientWidget : ModuleWidget {
 
 
 
-Model* modelRadioClient = createModel<RadioClient, RadioClientWidget>("RadioClient");
+Model* modelRadioServer = createModel<RadioServer, RadioServerWidget>("RadioServer");
 

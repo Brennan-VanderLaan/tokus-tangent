@@ -13,4 +13,5 @@ extern Plugin *pluginInstance;
 
 extern Model *modelRadioClient;
 extern Model *modelRadioBroadcast;
+extern Model *modelRadioServer;
 extern Model *modelRadioDelay;

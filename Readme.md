@@ -14,9 +14,30 @@ Listeners can pull streams.
 Broadcasters can push streams out to be digested.
 Servers facilitate connection hand offs.
 
+### Modules that are stable
 
-#### RadioClient (LISTENER)
-- Lets you pull a stream locally
+---
+
+<*crickets*>
+
+
+<br><br>
+### Modules that are past the dreaming stage
+
+---
+
+#### ./Client (2 Channel Client)
+- Lets you connect to a remote server module
+- proof of concept for radio
+
+#### ./Server (2 Channel Server)
+- Lets you accept a connection from a remote client
+- proof of concept for radio
+
+<br><br>
+### Modules that are solidly in the dreaming stage~
+
+---
 
 #### RadioReturn (BROADCASTER EXTENSION)
 - Lets a radio client return a stream of data as a 'response' stream to the broadcaster
