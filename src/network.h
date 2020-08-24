@@ -12,6 +12,14 @@ struct dataPacket {
     float * data;
 };
 
+struct connectionNegotiation {
+    int inputChannels;
+    int outputChannels;
+    int blockSize;
+    int bufferSize;
+    int sampleRate;
+};
+
 struct fancyPacket {
     int len;
     int inputChannels;

@@ -17,10 +17,10 @@ enum ClientState {
 
 struct RadioClient : Module {
     WSADATA WSAData;
-    SOCKET server;
+    SOCKET clientSocket;
     SOCKADDR_IN addr;
-    dsp::RingBuffer < dsp::Frame<2>, 512> inputBuffer;
-    dsp::RingBuffer < dsp::Frame<2>, 512> outputBuffer;
+    dsp::RingBuffer<dsp::Frame<2>, 512> inputBuffer;
+    dsp::RingBuffer<dsp::Frame<2>, 512> outputBuffer;
 
     dsp::SampleRateConverter<2> inputSrc;
     dsp::SampleRateConverter<2> outputSrc;
@@ -32,19 +32,22 @@ struct RadioClient : Module {
     int errorCounter = 0;
     int negotiateCounter = 0;
 
-    TextField* hostFieldWidget;
-    TextField* portFieldWidget;
-    TextField* blockSizeFieldWidget;
-    TextField* bufferSizeFieldWidget;
+    TextField *hostFieldWidget;
+    TextField *portFieldWidget;
+    TextField *blockSizeFieldWidget;
+    TextField *bufferSizeFieldWidget;
+
+    int serverSampleRate = 0;
+    int serverBufferSize = 0;
+    int serverBlockSize = 0;
+    int serverInputChannels = 0;
+    int serverOutputChannels = 0;
 
     enum ParamIds {
-        STATION_PARAM,
-        LEVEL_PARAM,
         NUM_PARAMS
     };
 
     enum InputIds {
-        TUNE_INPUT,
         IN1_INPUT,
         IN2_INPUT,
         NUM_INPUTS
@@ -52,23 +55,23 @@ struct RadioClient : Module {
     enum OutputIds {
         OUT1_OUTPUT,
         OUT2_OUTPUT,
-        OUT3_OUTPUT,
-        OUT4_OUTPUT,
-        OUT5_OUTPUT,
-        OUT6_OUTPUT,
-        OUT7_OUTPUT,
-        OUT8_OUTPUT,
         NUM_OUTPUTS
     };
 
     RadioClient() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, ClientState::NUM_STATES);
-        //configParam(STATION_PARAM, 0.0, 1.0, 1.0, "Station Tune", "%", 0, 100);
-        //configParam(LEVEL_PARAM, 0.0, 1.0, 1.0, "Out level", "%", 0, 100);
 
         INFO("Init");
-        WSAStartup(MAKEWORD(2,0), &WSAData);
-        server = socket(AF_INET, SOCK_STREAM, 0);
+        WSAStartup(MAKEWORD(2, 0), &WSAData);
+        clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+        u_long on = 1;
+        int err = ioctlsocket(clientSocket, FIONBIO, &on);
+        if (err < 0)
+        {
+            INFO("Couldn't set non-blocking socket option!");
+        }
+
 
         moduleState = ClientState::ERROR_STATE;
         INFO("Set ERROR state");
@@ -77,52 +80,18 @@ struct RadioClient : Module {
 
 
     ~RadioClient() {
-        closesocket(server);
-        WSACleanup();
+        INFO("Shutting down client socket...");
+        shutdown(clientSocket, SD_BOTH);
+        closesocket(clientSocket);
     }
-
 
 
     void getData() {
-//        char buffer[1024] = {};
-//        recv(server, buffer, sizeof(int) * 2, 0);
-//        dataPacket * p = (dataPacket *)buffer;
-//        int toRecv = p->len * p->channels * sizeof(float);
-//
-//        char data[toRecv];
-//        memset(data, 0, toRecv);
-//        recv(server, data, toRecv, 0);
-//        p->data = (float *)data;
+
     }
 
     void sendData() {
-//        float in_1 = inputs[IN1_INPUT].getVoltage();
-//        float in_2 = inputs[IN2_INPUT].getVoltage();
-//        dsp::Frame<2, float> frame;
-//        frame.samples[0] = in_1;
-//        frame.samples[1] = in_2;
-//
-//        const int CHUNK_SIZE = 128;
-//        if (!inputBuffer.full()) {
-//            inputBuffer.push(frame);
-//        } else {
-//            char buffer[sizeof(dataPacket) + (sizeof(float) * CHUNK_SIZE)]={};
-//            dataPacket * p = (dataPacket *)buffer;
-//
-//            p->len = inputBuffer.size();
-//            p->channels = 2;
-//
-//            int i = 0;
-//            while (!inputBuffer.empty() && i < CHUNK_SIZE) {
-//                dsp::Frame<2, float> sample = inputBuffer.shift();
-//                p->data[i] = sample.samples[0];
-//                p->data[i+1] = sample.samples[1];
-//                i += 2;
-//            }
-//
-//
-//            send(server, buffer, sizeof(buffer), 0);
-//        }
+
     }
 
     void bufferInputSamples(const ProcessArgs &args) {
@@ -152,10 +121,12 @@ struct RadioClient : Module {
                 return;
             }
 
-            int err = connect(server, (SOCKADDR *)&addr, sizeof(addr));
+            int err = connect(clientSocket, (SOCKADDR *) &addr, sizeof(addr));
             if (err == 0) {
+                INFO("CONNECTING");
                 moduleState = ClientState::CONNECTING;
             } else {
+                INFO("FAILED TO CONNECT: %ld\n", WSAGetLastError() );
                 moduleState = ClientState::ERROR_STATE;
             }
         }
@@ -163,13 +134,72 @@ struct RadioClient : Module {
 
     void negotiateSettings(const ProcessArgs &args) {
 
-        //TODO...
-        if (negotiateCounter > (int)(args.sampleRate * 3)) {
-            negotiateCounter = 0;
-            moduleState = ClientState::CONNECTED;
-        } else {
-            negotiateCounter += 1;
+        /*
+         Super simple
+
+        Server -> Client
+            connectionInfo
+
+         Client -> Server
+            connectionInfo
+
+         Advance to CONNECTED
+         */
+
+        connectionNegotiation *neg;
+
+        char buffer[sizeof(connectionNegotiation)+1];
+        INFO("receiving negotionation info...");
+
+        int err = recv(clientSocket, buffer, sizeof(connectionNegotiation), MSG_WAITALL);
+
+        if (err == 0 || err == SOCKET_ERROR) {
+            shutdown(clientSocket, SD_BOTH);
+            moduleState = ClientState::ERROR_STATE;
+            INFO("Failed to receive");
+            return;
         }
+
+        INFO("PAST RECV");
+
+        neg = (connectionNegotiation *)buffer;
+
+        serverBlockSize = neg->blockSize;
+        serverBufferSize = neg->bufferSize;
+        serverInputChannels = neg->inputChannels;
+        serverOutputChannels = neg->outputChannels;
+        serverSampleRate = neg->sampleRate;
+
+
+        neg->sampleRate = args.sampleRate;
+        neg->blockSize = std::stoi(blockSizeFieldWidget->text);
+        neg->bufferSize = std::stoi(blockSizeFieldWidget->text);
+        neg->inputChannels = 2;
+        neg->outputChannels = 2;
+
+
+        INFO("Received connection details...");
+
+        //memset(buffer, 0, sizeof(connectionNegotiation));
+        err = send(clientSocket, buffer, sizeof(connectionNegotiation), 0);
+        if (err == 0 || err == SOCKET_ERROR) {
+            shutdown(clientSocket, SD_BOTH);
+            moduleState = ClientState::ERROR_STATE;
+            return;
+        }
+
+
+
+
+        moduleState = ClientState::CONNECTED;
+
+//        //TODO...
+//        if (negotiateCounter > (int) (args.sampleRate * 3)) {
+//            negotiateCounter = 0;
+//            moduleState = ClientState::CONNECTED;
+//        } else {
+//            negotiateCounter += 1;
+//        }
 
     }
 
@@ -212,7 +242,7 @@ struct RadioClient : Module {
                 lights[ClientState::ERROR_STATE].setSmoothBrightness(10.0f, .1f);
 
                 //wait 5s
-                if (errorCounter > (int)(args.sampleRate * 5)) {
+                if (errorCounter > (int) (args.sampleRate * 5)) {
                     errorCounter = 0;
                     moduleState = ClientState::NOT_CONNECTED;
                 } else {
@@ -230,12 +260,12 @@ struct RadioClient : Module {
 
 struct RadioClientWidget : ModuleWidget {
 
-    TextField* hostField;
-    TextField* portField;
-    TextField* blockSizeField;
-    TextField* bufferSizeField;
+    TextField *hostField;
+    TextField *portField;
+    TextField *blockSizeField;
+    TextField *bufferSizeField;
 
-    RadioClientWidget(RadioClient* module) {
+    RadioClientWidget(RadioClient *module) {
         setModule(module);
         setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/RClient.svg")));
 
@@ -248,10 +278,13 @@ struct RadioClientWidget : ModuleWidget {
 //        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.7, 26.422)), module, RadioClient::STATION_PARAM));
 //        addParam(createParam<RoundLargeBlackKnob>(mm2px(Vec(6.35, 74.80544)), module, RadioClient::LEVEL_PARAM));
 
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(3.2, 70.9)), module, ClientState::ERROR_STATE));
-        addChild((Widget *)createLight<SmallLight<YellowLight>>(mm2px(Vec(9.082, 70.9)), module, ClientState::NOT_CONNECTED));
-        addChild((Widget *)createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module, ClientState::CONNECTING));
-        addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module, ClientState::CONNECTED));
+        addChild((Widget *) createLight<SmallLight<RedLight>>(mm2px(Vec(3.2, 70.9)), module, ClientState::ERROR_STATE));
+        addChild((Widget *) createLight<SmallLight<YellowLight>>(mm2px(Vec(9.082, 70.9)), module,
+                                                                 ClientState::NOT_CONNECTED));
+        addChild((Widget *) createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module,
+                                                               ClientState::CONNECTING));
+        addChild((Widget *) createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module,
+                                                                ClientState::CONNECTED));
 
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioClient::OUT1_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioClient::OUT2_OUTPUT));
@@ -263,32 +296,38 @@ struct RadioClientWidget : ModuleWidget {
         hostField->box.size = mm2px(Vec(24, 8));
         hostField->placeholder = "127.0.0.1";
         hostField->multiline = false;
+        if (module) module->hostFieldWidget = hostField;
         addChild(hostField);
 
         portField = createWidget<TextField>(mm2px(Vec(2.8, 29)));
         portField->box.size = mm2px(Vec(24, 8));
         portField->placeholder = "5555";
         portField->multiline = false;
+        if (module) module->portFieldWidget = portField;
         addChild(portField);
 
         blockSizeField = createWidget<TextField>(mm2px(Vec(2.8, 52)));
         blockSizeField->box.size = mm2px(Vec(24, 8));
         blockSizeField->placeholder = "256";
         blockSizeField->multiline = false;
+        if (module) module->blockSizeFieldWidget = blockSizeField;
         addChild(blockSizeField);
 
         bufferSizeField = createWidget<TextField>(mm2px(Vec(2.8, 41)));
         bufferSizeField->box.size = mm2px(Vec(24, 8));
         bufferSizeField->placeholder = "4096";
         bufferSizeField->multiline = false;
+        if (module) module->bufferSizeFieldWidget = bufferSizeField;
         addChild(bufferSizeField);
     }
 
     struct RadioTextItem : MenuItem {
-        RadioClient* module;
+        RadioClient *module;
         std::string value = "";
-        void onAction(const event::Action& e) override {
+
+        void onAction(const event::Action &e) override {
         }
+
         void step() override {
             rightText = value;
             MenuItem::step();
@@ -296,18 +335,20 @@ struct RadioClientWidget : ModuleWidget {
     };
 
     struct RadioIntItem : MenuItem {
-        RadioClient* module;
+        RadioClient *module;
         int value = 0;
-        void onAction(const event::Action& e) override {
+
+        void onAction(const event::Action &e) override {
         }
+
         void step() override {
             rightText = std::to_string(value);
             MenuItem::step();
         }
     };
 
-    void appendContextMenu(Menu* menu) override {
-        RadioClient* module = dynamic_cast<RadioClient*>(this->module);
+    void appendContextMenu(Menu *menu) override {
+        RadioClient *module = dynamic_cast<RadioClient *>(this->module);
         assert(module);
 
 //        menu->addChild(new MenuSeparator);
@@ -322,6 +363,5 @@ struct RadioClientWidget : ModuleWidget {
 };
 
 
-
-Model* modelRadioClient = createModel<RadioClient, RadioClientWidget>("RadioClient");
+Model *modelRadioClient = createModel<RadioClient, RadioClientWidget>("RadioClient");
 

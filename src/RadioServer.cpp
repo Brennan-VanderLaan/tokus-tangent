@@ -5,7 +5,8 @@
 #include "network.h"
 #include "plugin.hpp"
 #include <winsock2.h>
-
+#include <ws2tcpip.h>
+#include <thread>
 
 
 enum ServerState {
@@ -35,8 +36,18 @@ struct RadioServer : Module {
     int errorCounter = 0;
     int negotiateCounter = 0;
     int acceptConnCounter = 0;
+    int disconnectCheckCounter = 0;
 
     bool fatalError = false;
+
+    int clientSampleRate = 0;
+    int clientBufferSize = 0;
+    int clientBlockSize = 0;
+    int clientInputChannels = 0;
+    int clientOutputChannels = 0;
+
+    std::thread io_thread;
+
 
     TextField* portFieldWidget;
     TextField* blockSizeFieldWidget;
@@ -72,6 +83,10 @@ struct RadioServer : Module {
         //configParam(LEVEL_PARAM, 0.0, 1.0, 1.0, "Out level", "%", 0, 100);
 
         INFO("Init");
+
+        server = 0;
+        client = 0;
+
         WSAStartup(MAKEWORD(2,0), &WSAData);
         server = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -96,7 +111,6 @@ struct RadioServer : Module {
 
     ~RadioServer() {
         closesocket(server);
-        WSACleanup();
     }
 
 
@@ -145,14 +159,77 @@ struct RadioServer : Module {
 
     void negotiateSettings(const ProcessArgs &args) {
 
-        //TODO...
-        if (negotiateCounter > (int)(args.sampleRate * 3)) {
-            negotiateCounter = 0;
-            moduleState = ServerState::CONNECTED;
-        } else {
-            negotiateCounter += 1;
+        /*
+         Super simple
+
+        Server -> Client
+            connectionInfo
+
+         Client -> Server
+            connectionInfo
+
+         Advance to CONNECTED
+         */
+
+        connectionNegotiation *neg;
+
+        char buffer[sizeof(connectionNegotiation)+1];
+
+
+
+        INFO("setting negotionation info...");
+
+        neg = (connectionNegotiation *)buffer;
+        neg->sampleRate = (int)args.sampleRate;
+
+        neg->blockSize = std::stoi(blockSizeFieldWidget->placeholder);
+        neg->bufferSize = std::stoi(blockSizeFieldWidget->placeholder);
+        neg->inputChannels = 2;
+        neg->outputChannels = 2;
+
+
+        INFO("sending negotionation info...");
+
+        int err = send(client, buffer, sizeof(connectionNegotiation), 0);
+
+        if (err == 0 || err == SOCKET_ERROR) {
+            clientDisconnect();
         }
 
+        INFO("SENT negotionation info...");
+
+        //memset(buffer, 0, sizeof(connectionNegotiation));
+        err = recv(client, buffer, sizeof(connectionNegotiation), MSG_WAITALL);
+        if (err == 0 || err == SOCKET_ERROR) {
+            clientDisconnect();
+            return;
+        }
+
+
+        INFO("RECV negotionation info...");
+
+        clientBlockSize = neg->blockSize;
+        clientBufferSize = neg->bufferSize;
+        clientInputChannels = neg->inputChannels;
+        clientOutputChannels = neg->outputChannels;
+        clientSampleRate = neg->sampleRate;
+
+        moduleState = ServerState::CONNECTED;
+
+//        //TODO...
+//        if (negotiateCounter > (int)(args.sampleRate * 3)) {
+//            negotiateCounter = 0;
+//            moduleState = ServerState::CONNECTED;
+//        } else {
+//            negotiateCounter += 1;
+//        }
+
+    }
+
+    void clientDisconnect() {
+        closesocket(client);
+        client = 0;
+        moduleState = ServerState::LISTENING;
     }
 
     void acceptConnection() {
@@ -161,7 +238,7 @@ struct RadioServer : Module {
             acceptConnCounter = 0;
             client = accept(server, NULL, NULL);
             if (client == INVALID_SOCKET) {
-                client = NULL;
+                client = 0;
             } else {
                 moduleState = ServerState::NEGOTIATING;
             }
@@ -175,7 +252,7 @@ struct RadioServer : Module {
 
     void resetLights() {
         for (int i = 0; i < ServerState::NUM_STATES; i++) {
-            lights[i].setSmoothBrightness(0.0f, .4f);
+            lights[i].setSmoothBrightness(0.0f, 1.5f);
         }
     }
 
@@ -245,10 +322,6 @@ struct RadioServerWidget : ModuleWidget {
         addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-
-//        addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(12.7, 26.422)), module, RadioClient::STATION_PARAM));
-//        addParam(createParam<RoundLargeBlackKnob>(mm2px(Vec(6.35, 74.80544)), module, RadioClient::LEVEL_PARAM));
-
         addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(3.2, 70.9)), module, ServerState::ERROR_STATE));
         addChild((Widget *)createLight<SmallLight<YellowLight>>(mm2px(Vec(9.082, 70.9)), module, ServerState::NOT_CONNECTED));
         addChild((Widget *)createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module, ServerState::LISTENING));
@@ -265,18 +338,21 @@ struct RadioServerWidget : ModuleWidget {
         portField->box.size = mm2px(Vec(24, 8));
         portField->placeholder = "5555";
         portField->multiline = false;
+        if (module) module->portFieldWidget = portField;
         addChild(portField);
 
         blockSizeField = createWidget<TextField>(mm2px(Vec(2.8, 52)));
         blockSizeField->box.size = mm2px(Vec(24, 8));
         blockSizeField->placeholder = "256";
         blockSizeField->multiline = false;
+        if (module) module->blockSizeFieldWidget = blockSizeField;
         addChild(blockSizeField);
 
         bufferSizeField = createWidget<TextField>(mm2px(Vec(2.8, 41)));
         bufferSizeField->box.size = mm2px(Vec(24, 8));
         bufferSizeField->placeholder = "4096";
         bufferSizeField->multiline = false;
+        if (module) module->bufferSizeFieldWidget = bufferSizeField;
         addChild(bufferSizeField);
     }
 
