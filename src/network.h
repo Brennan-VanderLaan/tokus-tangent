@@ -6,13 +6,13 @@
 #define TOKUS_TANGENT_NETWORK_H
 
 
-struct dataPacket {
+struct DataPacket {
     int len;
     int channels;
     float * data;
 };
 
-struct connectionNegotiation {
+struct ConnectionNegotiation {
     int inputChannels;
     int outputChannels;
     int blockSize;
@@ -20,7 +20,7 @@ struct connectionNegotiation {
     int sampleRate;
 };
 
-struct fancyPacket {
+struct FancyPacket {
     int len;
     int inputChannels;
     int outputChannels;

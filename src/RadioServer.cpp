@@ -4,8 +4,7 @@
 
 #include "network.h"
 #include "plugin.hpp"
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include "Server.h"
 #include <thread>
 
 
@@ -20,34 +19,21 @@ enum ServerState {
 
 
 struct RadioServer : Module {
-    WSADATA WSAData;
-    SOCKET server;
-    SOCKET client;
+
     SOCKADDR_IN addr;
-    dsp::RingBuffer < dsp::Frame<2>, 512> inputBuffer;
-    dsp::RingBuffer < dsp::Frame<2>, 512> outputBuffer;
 
     dsp::SampleRateConverter<2> inputSrc;
     dsp::SampleRateConverter<2> outputSrc;
+
+    Server server;
 
     std::string portField = "5555";
 
     ServerState moduleState = NOT_CONNECTED;
     int errorCounter = 0;
-    int negotiateCounter = 0;
-    int acceptConnCounter = 0;
     int disconnectCheckCounter = 0;
 
     bool fatalError = false;
-
-    int clientSampleRate = 0;
-    int clientBufferSize = 0;
-    int clientBlockSize = 0;
-    int clientInputChannels = 0;
-    int clientOutputChannels = 0;
-
-    std::thread io_thread;
-
 
     TextField* portFieldWidget;
     TextField* blockSizeFieldWidget;
@@ -68,186 +54,51 @@ struct RadioServer : Module {
     enum OutputIds {
         OUT1_OUTPUT,
         OUT2_OUTPUT,
-        OUT3_OUTPUT,
-        OUT4_OUTPUT,
-        OUT5_OUTPUT,
-        OUT6_OUTPUT,
-        OUT7_OUTPUT,
-        OUT8_OUTPUT,
         NUM_OUTPUTS
     };
 
     RadioServer() {
         config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, ServerState::NUM_STATES);
-        //configParam(STATION_PARAM, 0.0, 1.0, 1.0, "Station Tune", "%", 0, 100);
-        //configParam(LEVEL_PARAM, 0.0, 1.0, 1.0, "Out level", "%", 0, 100);
 
         INFO("Init");
-
-        server = 0;
-        client = 0;
-
-        WSAStartup(MAKEWORD(2,0), &WSAData);
-        server = socket(AF_INET, SOCK_STREAM, 0);
-
-        u_long on = 1;
-        int err = setsockopt(server, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));
-
-        if (err < 0) {
-            INFO("Couldn't set socket option!");
-            fatalError = true;
-        }
-
-        ioctlsocket(server, FIONBIO, &on);
-        if (err < 0)
-        {
-            INFO("Couldn't set non-blocking socket option!");
-            fatalError = true;
-        }
+        addr = {};
+        server = Server();
 
         moduleState = ServerState::ERROR_STATE;
     }
 
 
     ~RadioServer() {
-        closesocket(server);
-    }
-
-
-    void getData() {
-
-    }
-
-    void sendData() {
-
     }
 
     void bufferInputSamples(const ProcessArgs &args) {
         float in_1 = inputs[IN1_INPUT].getVoltage();
         float in_2 = inputs[IN2_INPUT].getVoltage();
+
+        dsp::Frame<2, float> sample = {};
+        sample.samples[0] = in_1;
+        sample.samples[1] = in_2;
+
+        server.pushData(sample);
     }
 
     void tryToListen() {
         if (moduleState == ServerState::NOT_CONNECTED) {
 
-            addr.sin_family = AF_INET;
-
-            if (portField.length() == 0) {
-                addr.sin_port = htons(5555);
+            int port = 0;
+            if (portFieldWidget->text.length() > 0) {
+                port = std::stoi(portFieldWidget->text);
             } else {
-                addr.sin_port = htons(std::stoi(portField));
+                port = 5555;
             }
-
-            if (addr.sin_port < 1024 || addr.sin_port >= 65535) {
-                moduleState = ServerState::ERROR_STATE;
-                return;
-            }
-
-            addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-            int err = bind(server, (SOCKADDR *)&addr, sizeof(addr));
-
-            if (err == SOCKET_ERROR) {
-                moduleState = ServerState::ERROR_STATE;
-                return;
-            }
-
-            listen(server, 1);
-            acceptConnCounter = 0;
+            INFO("Listening on port: %d", port);
+            server.startListen(port);
             moduleState = ServerState::LISTENING;
         }
     }
 
-    void negotiateSettings(const ProcessArgs &args) {
-
-        /*
-         Super simple
-
-        Server -> Client
-            connectionInfo
-
-         Client -> Server
-            connectionInfo
-
-         Advance to CONNECTED
-         */
-
-        connectionNegotiation *neg;
-
-        char buffer[sizeof(connectionNegotiation)+1];
-
-
-
-        INFO("setting negotionation info...");
-
-        neg = (connectionNegotiation *)buffer;
-        neg->sampleRate = (int)args.sampleRate;
-
-        neg->blockSize = std::stoi(blockSizeFieldWidget->placeholder);
-        neg->bufferSize = std::stoi(blockSizeFieldWidget->placeholder);
-        neg->inputChannels = 2;
-        neg->outputChannels = 2;
-
-
-        INFO("sending negotionation info...");
-
-        int err = send(client, buffer, sizeof(connectionNegotiation), 0);
-
-        if (err == 0 || err == SOCKET_ERROR) {
-            clientDisconnect();
-        }
-
-        INFO("SENT negotionation info...");
-
-        //memset(buffer, 0, sizeof(connectionNegotiation));
-        err = recv(client, buffer, sizeof(connectionNegotiation), MSG_WAITALL);
-        if (err == 0 || err == SOCKET_ERROR) {
-            clientDisconnect();
-            return;
-        }
-
-
-        INFO("RECV negotionation info...");
-
-        clientBlockSize = neg->blockSize;
-        clientBufferSize = neg->bufferSize;
-        clientInputChannels = neg->inputChannels;
-        clientOutputChannels = neg->outputChannels;
-        clientSampleRate = neg->sampleRate;
-
-        moduleState = ServerState::CONNECTED;
-
-//        //TODO...
-//        if (negotiateCounter > (int)(args.sampleRate * 3)) {
-//            negotiateCounter = 0;
-//            moduleState = ServerState::CONNECTED;
-//        } else {
-//            negotiateCounter += 1;
-//        }
-
-    }
-
-    void clientDisconnect() {
-        closesocket(client);
-        client = 0;
-        moduleState = ServerState::LISTENING;
-    }
-
-    void acceptConnection() {
-        acceptConnCounter += 1;
-        if (acceptConnCounter > 1000) {
-            acceptConnCounter = 0;
-            client = accept(server, NULL, NULL);
-            if (client == INVALID_SOCKET) {
-                client = 0;
-            } else {
-                moduleState = ServerState::NEGOTIATING;
-            }
-        }
-    }
-
     void clearBuffers() {
-        inputBuffer.clear();
-        outputBuffer.clear();
+        server.clearBuffers();
     }
 
     void resetLights() {
@@ -264,20 +115,19 @@ struct RadioServer : Module {
                 resetLights();
                 lights[ServerState::CONNECTED].setSmoothBrightness(10.0f, .1f);
                 bufferInputSamples(args);
-                sendData();
-                getData();
                 break;
             case ServerState::NEGOTIATING:
                 resetLights();
                 lights[ServerState::NEGOTIATING].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
-                negotiateSettings(args);
                 break;
             case ServerState::LISTENING:
                 resetLights();
                 lights[ServerState::LISTENING].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
-                acceptConnection();
+                if (server.inErrorState()) {
+                    moduleState = ServerState::ERROR_STATE;
+                }
                 break;
             case ServerState::NOT_CONNECTED:
                 resetLights();
@@ -302,8 +152,6 @@ struct RadioServer : Module {
                 break;
         }
     }
-
-
 };
 
 
@@ -381,13 +229,6 @@ struct RadioServerWidget : ModuleWidget {
     void appendContextMenu(Menu* menu) override {
         RadioServer* module = dynamic_cast<RadioServer*>(this->module);
         assert(module);
-
-//        menu->addChild(new MenuSeparator);
-//        menu->addChild(construct<MenuLabel>(&MenuLabel::text, "Connection Settings"));
-//        menu->addChild(construct<RadioTextItem>(&MenuItem::text, "IP", &RadioTextItem::module, module, &RadioTextItem::value, "127.0.0.1"));
-//        menu->addChild(construct<RadioIntItem>(&MenuItem::text, "Port", &RadioIntItem::module, module, &RadioIntItem::value, 5555));
-//        menu->addChild(construct<RadioIntItem>(&MenuItem::text, "Buffersize", &RadioIntItem::module, module, &RadioIntItem::value, 512));
-//        menu->addChild(construct<RadioIntItem>(&MenuItem::text, "Blocksize", &RadioIntItem::module, module, &RadioIntItem::value, 64));
 
     }
 
