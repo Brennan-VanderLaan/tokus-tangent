@@ -121,8 +121,6 @@ void Server::ServerLoop() {
         negotiating = false;
         connected = true;
         while (running) {
-            INFO("TICK");
-            
             if (inputBuffer.size() > 256) {
 
                 DataPacket * packet = NULL;
