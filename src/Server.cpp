@@ -120,22 +120,25 @@ void Server::ServerLoop() {
         INFO("Server THREAD STARTING");
         negotiating = false;
         connected = true;
+
+        
+        int floatSize = sizeof(float);
+        char * buffer = new char[floatSize * 2048];
+
         while (running) {
-            if (inputBuffer.size() > 256) {
+            if (inputBuffer.size() > 128) {
 
                 DataPacket * packet = NULL;
 
-                int floatSize = sizeof(float);
 
                 char packetBuffer[sizeof(DataPacket)] = {};
                 packet = (DataPacket *)packetBuffer;
                 packet->channels = 2;
-                packet->len = 256;
+                packet->len = 128;
 
 
                 //Don't forget to deallocate!
                 int bufferSize = floatSize * packet->channels * packet->len;
-                char * buffer = new char[bufferSize];
 
                 float * samples = (float*) buffer;
 
@@ -145,6 +148,9 @@ void Server::ServerLoop() {
                     samples[i] = sample.samples[0];
                     samples[i+1] = sample.samples[1];
                 }
+
+                
+                INFO("Buffer: %ld", bufferSize);
 
                 int err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
                 if (err == SOCKET_ERROR) {
@@ -156,10 +162,35 @@ void Server::ServerLoop() {
                     INFO("Error sending data... %ld", WSAGetLastError());
                 }
 
-                delete[](buffer);
+                err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
+                if (err == SOCKET_ERROR) {
+                    INFO("Error receiving datapacket %ld", WSAGetLastError());
+                }
 
+                packet = (DataPacket *) packetBuffer;
+                bufferSize = floatSize * packet->channels * packet->len;
+
+                if (bufferSize > 0) {
+
+                    err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
+                    if (err == SOCKET_ERROR) {
+                        INFO("Error receiving datapacket %ld", WSAGetLastError());
+                    }
+
+                    samples = (float*) buffer;
+
+                    for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
+                        dsp::Frame<2, float> sample = {};
+                        sample.samples[0] = samples[i];
+                        sample.samples[1] = samples[i+1];
+                        outputBuffer.push(sample);
+                    }
+
+                }
             }
         }
+
+        delete[] buffer;
     }
 
     INFO("Server THREAD TERMINATING");

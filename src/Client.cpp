@@ -4,6 +4,8 @@
 
 #include "Client.h"
 
+#include <exception>
+
 Client::Client() : Client(64) {
 
 }
@@ -92,44 +94,79 @@ void Client::clientLoop() {
     } else {
         INFO("CLIENT THREAD STARTING");
         connected = true;
-        while (running) {
-            
-            //Server is going to send a data packet, 
-            // and then we'll know how much data
-
-            DataPacket * packet = NULL;
-
+        try {
             int floatSize = sizeof(float);
-            char packetBuffer[sizeof(DataPacket)] = {};
+            char * buffer = new char[floatSize * 2048];
 
-            err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
-            if (err == SOCKET_ERROR) {
-                INFO("Error receiving datapacket %ld", WSAGetLastError());
+            while (running) {
+                
+                //Server is going to send a data packet, 
+                // and then we'll know how much data
+
+                DataPacket * packet = NULL;
+
+                
+                char packetBuffer[sizeof(DataPacket)] = {};
+
+                err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
+                if (err == SOCKET_ERROR) {
+                    INFO("Error receiving datapacket %ld", WSAGetLastError());
+                }
+
+                packet = (DataPacket *)packetBuffer;
+                int bufferSize = floatSize * packet->channels * packet->len;
+
+                err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
+                if (err == SOCKET_ERROR) {
+                    INFO("Error receiving datapacket %ld", WSAGetLastError());
+                }
+
+                float * sampleBuffer = (float *) buffer;
+
+                for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
+                    dsp::Frame<2, float> sample = {};
+                    sample.samples[0] = sampleBuffer[i];
+                    sample.samples[1] = sampleBuffer[i+1];
+                    outputBuffer.push(sample);
+                }
+
+                //Okay, now send our buffered data...
+                if (inputBuffer.size() > 400) {
+                    packet->len = 400;
+                } else {
+                    packet->len = inputBuffer.size();
+                }
+
+                bufferSize = floatSize * packet->channels * packet->len;
+
+                if (bufferSize > 0) {
+
+                    for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
+                        dsp::Frame<2, float> sample = {};
+                        sample = inputBuffer.shift();
+                        sampleBuffer[i] = sample.samples[0];
+                        sampleBuffer[i+1] = sample.samples[1];
+                    }
+                }
+
+                err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
+                if (err == SOCKET_ERROR) {
+                    INFO("Error sending packet... %d", WSAGetLastError());
+                }
+
+                if (bufferSize > 0) {
+                    INFO("Buffer: %ld", bufferSize);
+                    err = send(clientSocket, buffer, bufferSize, 0);
+                    if (err == SOCKET_ERROR) {
+                        INFO("Error sending data... %ld", WSAGetLastError());
+                    }
+                }
             }
 
-            packet = (DataPacket *)packetBuffer;
-            int bufferSize = floatSize * packet->channels * packet->len;
+            delete[] buffer;
 
-            //Don't forget to deallocate!
-            char * buffer = new char[bufferSize];
-
-            err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
-            if (err == SOCKET_ERROR) {
-                INFO("Error receiving datapacket %ld", WSAGetLastError());
-            }
-
-            float * sampleBuffer = (float *) buffer;
-
-            for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
-                dsp::Frame<2, float> sample = {};
-                sample.samples[0] = sampleBuffer[i];
-                sample.samples[1] = sampleBuffer[i+1];
-                outputBuffer.push(sample);
-            }
-
-
-            delete[](buffer);
-
+        } catch (std::exception &e) {
+            INFO("Error in main client loop...");
         }
     }
 
