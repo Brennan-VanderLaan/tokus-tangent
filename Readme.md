@@ -83,7 +83,7 @@ into VCV Rack.
 
 The plan is to use TCP as the initial transport and focus on goals in this order
 
-- Static buffer size, implement RadioClient & RadioBroadcast to use address typed in (no auto-discovery)
+- *Done* - Static buffer size, implement RadioClient & RadioBroadcast to use address typed in (no auto-discovery)
 - Expose buffer status to UI
 - Add latency tracking
 - Add buffer tracking
