@@ -136,10 +136,7 @@ void Server::ServerLoop() {
                 packet->channels = 2;
                 packet->len = 128;
 
-
-                //Don't forget to deallocate!
                 int bufferSize = floatSize * packet->channels * packet->len;
-
                 float * samples = (float*) buffer;
 
                 for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
