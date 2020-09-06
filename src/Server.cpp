@@ -146,9 +146,6 @@ void Server::ServerLoop() {
                     samples[i+1] = sample.samples[1];
                 }
 
-                
-                INFO("Buffer: %ld", bufferSize);
-
                 int err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
                 if (err == SOCKET_ERROR) {
                     INFO("Error sending packet... %d", WSAGetLastError());

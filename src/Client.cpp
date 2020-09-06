@@ -155,7 +155,6 @@ void Client::clientLoop() {
                 }
 
                 if (bufferSize > 0) {
-                    INFO("Buffer: %ld", bufferSize);
                     err = send(clientSocket, buffer, bufferSize, 0);
                     if (err == SOCKET_ERROR) {
                         INFO("Error sending data... %ld", WSAGetLastError());
