@@ -80,6 +80,10 @@ struct RadioServer : Module {
         sample.samples[1] = in_2;
 
         server.pushData(sample);
+
+        sample = server.getData();
+        outputs[OUT1_OUTPUT].setVoltage(sample.samples[0]);
+        outputs[OUT2_OUTPUT].setVoltage(sample.samples[1]);
     }
 
     void tryToListen() {
@@ -120,11 +124,18 @@ struct RadioServer : Module {
                 resetLights();
                 lights[ServerState::NEGOTIATING].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
+                if (server.isConnected()) {
+                    moduleState = ServerState::CONNECTED;
+                }
                 break;
             case ServerState::LISTENING:
                 resetLights();
                 lights[ServerState::LISTENING].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
+                if (server.isNegotiating() || server.isConnected()) {
+                    moduleState = ServerState::NEGOTIATING;
+                }
+
                 if (server.inErrorState()) {
                     moduleState = ServerState::ERROR_STATE;
                 }

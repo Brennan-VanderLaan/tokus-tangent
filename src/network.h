@@ -9,7 +9,6 @@
 struct DataPacket {
     int len;
     int channels;
-    float * data;
 };
 
 struct ConnectionNegotiation {

@@ -21,6 +21,7 @@ public:
     void stop();
 
     void clearBuffers();
+    bool isNegotiating();
     bool isConnected();
     bool inErrorState();
 
@@ -32,12 +33,14 @@ public:
 
 private:
     SOCKET serverSocket;
+    SOCKET clientSocket;
     SOCKADDR_IN addr;
     std::string remoteHost;
     ConnectionNegotiation localSettings;
     ConnectionNegotiation remoteSettings;
     bool running;
     bool connected;
+    bool negotiating;
     bool errorState;
 
     int port;

@@ -5,6 +5,7 @@
 #ifndef TOKUS_TANGENT_CLIENT_H
 #define TOKUS_TANGENT_CLIENT_H
 #include <winsock2.h>
+#include <WS2tcpip.h>
 #include <string.hpp>
 #include <thread>
 #include "network.h"
@@ -32,8 +33,8 @@ public:
 
 private:
     SOCKET clientSocket;
-    SOCKADDR_IN addr;
     std::string remoteHost;
+    int port;
     ConnectionNegotiation localSettings;
     ConnectionNegotiation remoteSettings;
     bool running;

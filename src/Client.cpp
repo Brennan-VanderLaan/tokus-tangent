@@ -12,8 +12,7 @@ Client::Client(int blockSize) {
     running = false;
     errorState = false;
     connected = false;
-
-    addr = {};
+    port = 5555;
 
     inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
     outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
@@ -69,12 +68,17 @@ void Client::clientLoop() {
         running = false;
     }
 
-    SOCKADDR_IN tmp_addr = {};
-    tmp_addr.sin_family = AF_INET;
-    tmp_addr.sin_port = 5555;
-    tmp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    struct addrinfo hints = {};
 
-    int err = connect(clientSocket, (SOCKADDR *) &tmp_addr, sizeof(tmp_addr));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    struct addrinfo * result = NULL;
+
+    int err = getaddrinfo(remoteHost.c_str(), std::to_string(port).c_str(), &hints, &result);
+
+    err = connect(clientSocket, result->ai_addr, result->ai_addrlen);
     if (err == -1) {
         INFO("connect function failed with error: %ld\n", WSAGetLastError());
     }
@@ -87,9 +91,45 @@ void Client::clientLoop() {
         INFO("Failed to negotiate...");
     } else {
         INFO("CLIENT THREAD STARTING");
+        connected = true;
         while (running) {
-            INFO("TICK");
-            std::this_thread::sleep_for (std::chrono::seconds(1));
+            
+            //Server is going to send a data packet, 
+            // and then we'll know how much data
+
+            DataPacket * packet = NULL;
+
+            int floatSize = sizeof(float);
+            char packetBuffer[sizeof(DataPacket)] = {};
+
+            err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
+            if (err == SOCKET_ERROR) {
+                INFO("Error receiving datapacket %ld", WSAGetLastError());
+            }
+
+            packet = (DataPacket *)packetBuffer;
+            int bufferSize = floatSize * packet->channels * packet->len;
+
+            //Don't forget to deallocate!
+            char * buffer = new char[bufferSize];
+
+            err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
+            if (err == SOCKET_ERROR) {
+                INFO("Error receiving datapacket %ld", WSAGetLastError());
+            }
+
+            float * sampleBuffer = (float *) buffer;
+
+            for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
+                dsp::Frame<2, float> sample = {};
+                sample.samples[0] = sampleBuffer[i];
+                sample.samples[1] = sampleBuffer[i+1];
+                outputBuffer.push(sample);
+            }
+
+
+            delete[](buffer);
+
         }
     }
 
@@ -109,22 +149,18 @@ bool Client::connectToHost(const std::string& host, int port) {
     INFO("CONNECT TO HOST");
     errorState = false;
 
-    addr.sin_family = AF_INET;
-
     if (host.length() == 0) {
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         remoteHost = "127.0.0.1";
         INFO("LOCAL");
     } else {
-        addr.sin_addr.s_addr = inet_addr(host.c_str());
         remoteHost = host;
     }
 
-    addr.sin_port = port;
-    if (addr.sin_port < 1024 || addr.sin_port >= 65535) {
-        INFO("BAD PORT: %d", addr.sin_port);
+    if (port < 1024 || port >= 65535) {
+        INFO("BAD PORT: %d", port);
         return false;
     }
+    this->port = port;
 
     if (!running) {
         running = true;
@@ -143,12 +179,12 @@ void Client::setConnectionSettings(ConnectionNegotiation settings) {
 bool Client::negotiateSettings() {
     ConnectionNegotiation *neg;
 
-    char buffer[sizeof(ConnectionNegotiation) + 1];
+    char buffer[sizeof(ConnectionNegotiation) + 1] = {};
     INFO("receiving negotionation info...");
-    int err = recv(clientSocket, buffer, sizeof(ConnectionNegotiation), 0);
-    if (err == 0 || err == SOCKET_ERROR) {
+    int err = recv(clientSocket, buffer, sizeof(ConnectionNegotiation), MSG_WAITALL);
+    if (err == SOCKET_ERROR) {
         shutdown(clientSocket, SD_BOTH);
-        INFO("Failed to receive");
+        INFO("Failed to receive %d", WSAGetLastError());
         return false;
     }
 
@@ -168,8 +204,9 @@ bool Client::negotiateSettings() {
     neg->outputChannels = localSettings.outputChannels;
 
     err = send(clientSocket, buffer, sizeof(ConnectionNegotiation), 0);
-    if (err == 0 || err == SOCKET_ERROR) {
+    if (err == SOCKET_ERROR) {
         shutdown(clientSocket, SD_BOTH);
+        INFO("Error sending... %d", WSAGetLastError());
         return false;
     }
 

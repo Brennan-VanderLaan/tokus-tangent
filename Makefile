@@ -2,13 +2,13 @@
 RACK_DIR ?= ../../
 
 # FLAGS will be passed to both the C and C++ compiler
-FLAGS += -g
+FLAGS +=
 CFLAGS +=
 CXXFLAGS +=
 
 # Careful about linking to shared libraries, since you can't assume much about the user's environment and library search path.
 # Static libraries are fine, but they should be added to this plugin's build system.
-LDFLAGS += -lwsock32
+LDFLAGS += -lwsock32 -lWS2_32
 
 # Add .cpp files to the build
 SOURCES += $(wildcard src/*.cpp)

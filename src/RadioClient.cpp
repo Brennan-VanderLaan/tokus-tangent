@@ -123,7 +123,7 @@ struct RadioClient : Module {
                 resetLights();
                 lights[ClientState::CONNECTED].setSmoothBrightness(10.0f, .5f);
                 bufferSamples(args);
-                if (!client.isConnected()) {
+                if (!client.isConnected() || client.inErrorState()) {
                     moduleState = ClientState::ERROR_STATE;
                 }
                 break;
