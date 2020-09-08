@@ -16,8 +16,8 @@ Client::Client(int blockSize) {
     connected = false;
     port = 5555;
 
-    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
-    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
+    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
+    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
 
     this->blockSize = blockSize;
 }
@@ -58,35 +58,57 @@ void Client::clearBuffers() {
     outputBuffer.clear();
 }
 
+bool Client::in_buffer_overflow() {
+    return inputBuffer.full();
+}
+
+bool Client::in_buffer_underflow() {
+    return inputBuffer.empty();
+}
+
+bool Client::out_buffer_overflow() {
+    return outputBuffer.full();
+}
+
+bool Client::out_buffer_underflow() {
+    return outputBuffer.empty();
+}
+
 
 void Client::clientLoop() {
 
     INFO("Starting client loop");
 
     clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
     if (clientSocket == INVALID_SOCKET) {
         INFO("socket function failed with error: %ld\n", WSAGetLastError());
         running = false;
     }
 
-    struct addrinfo hints = {};
+    DWORD timeout = 5000;
+    setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout);
 
+    struct addrinfo hints = {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
     struct addrinfo * result = NULL;
-
+    //This gets us a valid address to connect to *if* we can
     int err = getaddrinfo(remoteHost.c_str(), std::to_string(port).c_str(), &hints, &result);
+    if (err == -1) {
+        INFO("getaddrinfo failed with error: %ld\n", WSAGetLastError());
+        running = false;
+        errorState = true;
+    }
 
+    //Connect to it...
     err = connect(clientSocket, result->ai_addr, result->ai_addrlen);
     if (err == -1) {
         INFO("connect function failed with error: %ld\n", WSAGetLastError());
+        running = false;
+        errorState = true;
     }
-
-    INFO("ERROR: %d", err);
-
 
     if (!negotiateSettings()) {
         running = false;
@@ -96,16 +118,13 @@ void Client::clientLoop() {
         connected = true;
         try {
             int floatSize = sizeof(float);
-            char * buffer = new char[floatSize * 2048];
+            char * buffer = new char[floatSize * 16384];
 
             while (running) {
                 
                 //Server is going to send a data packet, 
                 // and then we'll know how much data
-
                 DataPacket * packet = NULL;
-
-                
                 char packetBuffer[sizeof(DataPacket)] = {};
 
                 err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
@@ -114,15 +133,18 @@ void Client::clientLoop() {
                 }
 
                 packet = (DataPacket *)packetBuffer;
+                //Figure out the size of the data trailer
                 int bufferSize = floatSize * packet->channels * packet->len;
 
                 err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
                 if (err == SOCKET_ERROR) {
                     INFO("Error receiving datapacket %ld", WSAGetLastError());
+                    running = false;
+                    break;
                 }
 
+                //Walk the buffer for samples
                 float * sampleBuffer = (float *) buffer;
-
                 for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
                     dsp::Frame<2, float> sample = {};
                     sample.samples[0] = sampleBuffer[i];
@@ -130,17 +152,16 @@ void Client::clientLoop() {
                     outputBuffer.push(sample);
                 }
 
-                //Okay, now send our buffered data...
-                if (inputBuffer.size() > 400) {
-                    packet->len = 400;
+                //Decide how much we are sending back
+                if (inputBuffer.size() > 8192) {
+                    packet->len = 8192;
                 } else {
                     packet->len = inputBuffer.size();
                 }
 
+                //Load the buffer
                 bufferSize = floatSize * packet->channels * packet->len;
-
                 if (bufferSize > 0) {
-
                     for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
                         dsp::Frame<2, float> sample = {};
                         sample = inputBuffer.shift();
@@ -149,17 +170,25 @@ void Client::clientLoop() {
                     }
                 }
 
+                //Tell the server how many samples we are sending
+                // Can be 0
                 err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
                 if (err == SOCKET_ERROR) {
                     INFO("Error sending packet... %d", WSAGetLastError());
+                    running = false;
+                    break;
                 }
 
+                //Send the samples if we have any
                 if (bufferSize > 0) {
                     err = send(clientSocket, buffer, bufferSize, 0);
                     if (err == SOCKET_ERROR) {
                         INFO("Error sending data... %ld", WSAGetLastError());
+                        running = false;
+                        break;
                     }
                 }
+
             }
 
             delete[] buffer;
@@ -176,6 +205,8 @@ void Client::clientLoop() {
 
 
 void Client::init() {
+
+    //TODO: this should be centralized...
     WSADATA WSAData;
     WSAStartup(MAKEWORD(2, 2), &WSAData);
 }
@@ -187,7 +218,6 @@ bool Client::connectToHost(const std::string& host, int port) {
 
     if (host.length() == 0) {
         remoteHost = "127.0.0.1";
-        INFO("LOCAL");
     } else {
         remoteHost = host;
     }

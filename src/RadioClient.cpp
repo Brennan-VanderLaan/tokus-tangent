@@ -10,6 +10,10 @@ enum ClientState {
     CONNECTING,
     CONNECTED,
     ERROR_STATE,
+    IN_BUFFER_OVERFLOW,
+    IN_BUFFER_UNDERFLOW,
+    OUT_BUFFER_OVERFLOW,
+    OUT_BUFFER_UNDERFLOW,
     NUM_STATES
 };
 
@@ -65,6 +69,29 @@ struct RadioClient : Module {
         client.stop();
     }
 
+    void reportBufferState() {
+        if (client.in_buffer_overflow()) {
+            lights[ClientState::IN_BUFFER_OVERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ClientState::IN_BUFFER_OVERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+        if (client.in_buffer_underflow()) {
+            lights[ClientState::IN_BUFFER_UNDERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ClientState::IN_BUFFER_UNDERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+        if (client.out_buffer_overflow()) {
+            lights[ClientState::OUT_BUFFER_OVERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ClientState::OUT_BUFFER_OVERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+        if (client.out_buffer_underflow()) {
+            lights[ClientState::OUT_BUFFER_UNDERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ClientState::OUT_BUFFER_UNDERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+    }
+
     void bufferSamples(const ProcessArgs &args) {
         dsp::Frame<2, float> sample = client.getData();
         outputs[OUT1_OUTPUT].setVoltage(sample.samples[0]);
@@ -75,6 +102,7 @@ struct RadioClient : Module {
         sample.samples[0] = in_1;
         sample.samples[1] = in_2;
         client.pushData(sample);
+
     }
 
     void tryToConnect(const ProcessArgs &args) {
@@ -120,8 +148,8 @@ struct RadioClient : Module {
         //TODO: Maybe don't reset the lights per frame?
         switch (moduleState) {
             case ClientState::CONNECTED:
-                resetLights();
                 lights[ClientState::CONNECTED].setSmoothBrightness(10.0f, .5f);
+                reportBufferState();
                 bufferSamples(args);
                 if (!client.isConnected() || client.inErrorState()) {
                     moduleState = ClientState::ERROR_STATE;
@@ -131,8 +159,11 @@ struct RadioClient : Module {
                 resetLights();
                 lights[ClientState::CONNECTING].setSmoothBrightness(10.0f, .5f);
                 if (client.isConnected()) {
+                    reportBufferState();
+                    bufferSamples(args);
                     clearBuffers();
                     moduleState = ClientState::CONNECTED;
+                    resetLights();
                 }
                 if (client.inErrorState()) {
                     moduleState = ClientState::ERROR_STATE;
@@ -143,6 +174,8 @@ struct RadioClient : Module {
                 resetLights();
                 lights[ClientState::NOT_CONNECTED].setSmoothBrightness(10.0f, .5f);
                 INFO("Clear Buffers...");
+                reportBufferState();
+                bufferSamples(args);
                 clearBuffers();
                 INFO("Connect");
                 tryToConnect(args);
@@ -150,9 +183,9 @@ struct RadioClient : Module {
             case ClientState::ERROR_STATE:
                 resetLights();
                 lights[ClientState::ERROR_STATE].setSmoothBrightness(10.0f, .5f);
-
+                reportBufferState();
                 //wait 5s
-                if (errorCounter > (int) (args.sampleRate * 5)) {
+                if (errorCounter > (int) (args.sampleRate * 8)) {
                     errorCounter = 0;
                     moduleState = ClientState::NOT_CONNECTED;
                 } else {
@@ -189,6 +222,12 @@ struct RadioClientWidget : ModuleWidget {
                                                                ClientState::CONNECTING));
         addChild((Widget *) createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module,
                                                                 ClientState::CONNECTED));
+
+
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 76.769)), module, ClientState::IN_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 79.984)), module, ClientState::IN_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 100.825)), module, ClientState::OUT_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 104.041)), module, ClientState::OUT_BUFFER_UNDERFLOW));
 
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioClient::OUT1_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioClient::OUT2_OUTPUT));

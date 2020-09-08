@@ -16,8 +16,8 @@ Server::Server(int blockSize) {
 
     addr = {};
 
-    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
-    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 4096>{};
+    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
+    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
 
     this->blockSize = blockSize;
 }
@@ -123,18 +123,17 @@ void Server::ServerLoop() {
 
         
         int floatSize = sizeof(float);
-        char * buffer = new char[floatSize * 2048];
+        char * buffer = new char[floatSize * 16384];
 
         while (running) {
-            if (inputBuffer.size() > 128) {
+            if (inputBuffer.size() > 8192) {
 
                 DataPacket * packet = NULL;
-
 
                 char packetBuffer[sizeof(DataPacket)] = {};
                 packet = (DataPacket *)packetBuffer;
                 packet->channels = 2;
-                packet->len = 128;
+                packet->len = 8192;
 
                 int bufferSize = floatSize * packet->channels * packet->len;
                 float * samples = (float*) buffer;
@@ -154,11 +153,15 @@ void Server::ServerLoop() {
                 err = send(clientSocket, buffer, bufferSize, 0);
                 if (err == SOCKET_ERROR) {
                     INFO("Error sending data... %ld", WSAGetLastError());
+                    running = false;
+                    break;
                 }
 
                 err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
                 if (err == SOCKET_ERROR) {
                     INFO("Error receiving datapacket %ld", WSAGetLastError());
+                    running = false;
+                    break;
                 }
 
                 packet = (DataPacket *) packetBuffer;
@@ -169,6 +172,8 @@ void Server::ServerLoop() {
                     err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
                     if (err == SOCKET_ERROR) {
                         INFO("Error receiving datapacket %ld", WSAGetLastError());
+                        running = false;
+                        break;
                     }
 
                     samples = (float*) buffer;
@@ -192,6 +197,22 @@ void Server::ServerLoop() {
     errorState = true;
 }
 
+
+bool Server::in_buffer_overflow() {
+    return inputBuffer.full();
+}
+
+bool Server::in_buffer_underflow() {
+    return inputBuffer.empty();
+}
+
+bool Server::out_buffer_overflow() {
+    return outputBuffer.full();
+}
+
+bool Server::out_buffer_underflow() {
+    return outputBuffer.empty();
+}
 
 void Server::init() {
     WSADATA WSAData;

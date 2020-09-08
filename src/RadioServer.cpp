@@ -14,6 +14,10 @@ enum ServerState {
     CONNECTED,
     NEGOTIATING,
     ERROR_STATE,
+    IN_BUFFER_OVERFLOW,
+    IN_BUFFER_UNDERFLOW,
+    OUT_BUFFER_OVERFLOW,
+    OUT_BUFFER_UNDERFLOW,
     NUM_STATES
 };
 
@@ -71,6 +75,32 @@ struct RadioServer : Module {
     ~RadioServer() {
     }
 
+    void reportBufferState() {
+        if (server.in_buffer_overflow()) {
+            lights[ServerState::IN_BUFFER_OVERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ServerState::IN_BUFFER_OVERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+
+        if (server.in_buffer_underflow()) {
+            lights[ServerState::IN_BUFFER_UNDERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ServerState::IN_BUFFER_UNDERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+
+        if (server.out_buffer_overflow()) {
+            lights[ServerState::OUT_BUFFER_OVERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ServerState::OUT_BUFFER_OVERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+
+        if (server.out_buffer_underflow()) {
+            lights[ServerState::OUT_BUFFER_UNDERFLOW].setBrightness(10.0f);
+        } else {
+            lights[ServerState::OUT_BUFFER_UNDERFLOW].setSmoothBrightness(0.0f, 1.0f);
+        }
+    }
+
     void bufferInputSamples(const ProcessArgs &args) {
         float in_1 = inputs[IN1_INPUT].getVoltage();
         float in_2 = inputs[IN2_INPUT].getVoltage();
@@ -107,7 +137,7 @@ struct RadioServer : Module {
 
     void resetLights() {
         for (int i = 0; i < ServerState::NUM_STATES; i++) {
-            lights[i].setSmoothBrightness(0.0f, 1.5f);
+            lights[i].setBrightness(0.0f);
         }
     }
 
@@ -116,21 +146,29 @@ struct RadioServer : Module {
         //TODO: Maybe don't reset the lights per frame?
         switch (moduleState) {
             case ServerState::CONNECTED:
-                resetLights();
                 lights[ServerState::CONNECTED].setSmoothBrightness(10.0f, .1f);
+                reportBufferState();
                 bufferInputSamples(args);
+                if (!server.isConnected() || server.inErrorState()) {
+                    server.stop();
+                    moduleState = ServerState::ERROR_STATE;
+                }
+
                 break;
             case ServerState::NEGOTIATING:
                 resetLights();
                 lights[ServerState::NEGOTIATING].setSmoothBrightness(10.0f, .1f);
+                reportBufferState();
                 clearBuffers();
                 if (server.isConnected()) {
                     moduleState = ServerState::CONNECTED;
+                    resetLights();
                 }
                 break;
             case ServerState::LISTENING:
                 resetLights();
                 lights[ServerState::LISTENING].setSmoothBrightness(10.0f, .1f);
+                reportBufferState();
                 clearBuffers();
                 if (server.isNegotiating() || server.isConnected()) {
                     moduleState = ServerState::NEGOTIATING;
@@ -142,6 +180,7 @@ struct RadioServer : Module {
                 break;
             case ServerState::NOT_CONNECTED:
                 resetLights();
+                reportBufferState();
                 lights[ServerState::NOT_CONNECTED].setSmoothBrightness(10.0f, .1f);
                 clearBuffers();
                 tryToListen();
@@ -151,7 +190,7 @@ struct RadioServer : Module {
                 lights[ServerState::ERROR_STATE].setSmoothBrightness(10.0f, .1f);
                 if (!fatalError) {
                     //wait 5s
-                    if (errorCounter > (int) (args.sampleRate * 5)) {
+                    if (errorCounter > (int) (args.sampleRate * 8)) {
                         errorCounter = 0;
                         moduleState = ServerState::NOT_CONNECTED;
                     } else {
@@ -186,6 +225,11 @@ struct RadioServerWidget : ModuleWidget {
         addChild((Widget *)createLight<SmallLight<BlueLight>>(mm2px(Vec(14.93, 70.9)), module, ServerState::LISTENING));
         addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module, ServerState::NEGOTIATING));
         addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(26.705, 70.9)), module, ServerState::CONNECTED));
+
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 76.769)), module, ServerState::IN_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 79.984)), module, ServerState::IN_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 100.825)), module, ServerState::OUT_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 104.041)), module, ServerState::OUT_BUFFER_UNDERFLOW));
 
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioServer::OUT1_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioServer::OUT2_OUTPUT));

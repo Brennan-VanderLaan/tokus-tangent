@@ -31,6 +31,12 @@ public:
     dsp::Frame<2, float> getData();
 
 
+    bool in_buffer_overflow();
+    bool in_buffer_underflow();
+    bool out_buffer_overflow();
+    bool out_buffer_underflow();
+
+
 private:
     SOCKET clientSocket;
     std::string remoteHost;
@@ -42,8 +48,8 @@ private:
     bool errorState;
 
     int blockSize;
-    dsp::RingBuffer<dsp::Frame<2>, 4096> inputBuffer;
-    dsp::RingBuffer<dsp::Frame<2>, 4096> outputBuffer;
+    dsp::RingBuffer<dsp::Frame<2>, 16384> inputBuffer;
+    dsp::RingBuffer<dsp::Frame<2>, 16384> outputBuffer;
 
     void clientLoop();
     void start();
