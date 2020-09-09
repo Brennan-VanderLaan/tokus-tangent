@@ -50,14 +50,11 @@ struct RadioServer : Module {
     };
 
     enum InputIds {
-        TUNE_INPUT,
-        IN1_INPUT,
-        IN2_INPUT,
+        INPUT_JACK,
         NUM_INPUTS
     };
     enum OutputIds {
-        OUT1_OUTPUT,
-        OUT2_OUTPUT,
+        OUTPUT_JACK,
         NUM_OUTPUTS
     };
 
@@ -102,18 +99,23 @@ struct RadioServer : Module {
     }
 
     void bufferInputSamples(const ProcessArgs &args) {
-        float in_1 = inputs[IN1_INPUT].getVoltage();
-        float in_2 = inputs[IN2_INPUT].getVoltage();
 
-        dsp::Frame<2, float> sample = {};
-        sample.samples[0] = in_1;
-        sample.samples[1] = in_2;
+        int channelCount = inputs[INPUT_JACK].getChannels();
 
-        server.pushData(sample);
+        dsp::Frame<8, float> sample = server.getData();
+        int outputChannelCount = server.getRemoteChannelCount();
 
-        sample = server.getData();
-        outputs[OUT1_OUTPUT].setVoltage(sample.samples[0]);
-        outputs[OUT2_OUTPUT].setVoltage(sample.samples[1]);
+        outputs[OUTPUT_JACK].setChannels(outputChannelCount);
+        for (int i = 0; i < outputChannelCount; i++) {
+            outputs[OUTPUT_JACK].setVoltage(sample.samples[i], i);
+        }
+
+        sample = {};
+        for (int i = 0; i < channelCount; i++) {
+            sample.samples[i] = inputs[INPUT_JACK].getVoltage(i);
+        }
+        server.pushData(sample, channelCount);
+
     }
 
     void tryToListen() {
@@ -126,6 +128,14 @@ struct RadioServer : Module {
                 port = 5555;
             }
             INFO("Listening on port: %d", port);
+
+            ConnectionNegotiation settings = ConnectionNegotiation();
+            settings.outputChannels = 1;
+            settings.inputChannels = 1;
+            settings.sampleRate = 44100;
+            settings.bufferSize = 4096;
+            server.setConnectionSettings(settings);
+
             server.startListen(port);
             moduleState = ServerState::LISTENING;
         }
@@ -226,16 +236,13 @@ struct RadioServerWidget : ModuleWidget {
         addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(20.779, 70.9)), module, ServerState::NEGOTIATING));
         addChild((Widget *)createLight<SmallLight<GreenLight>>(mm2px(Vec(26.705, 70.9)), module, ServerState::CONNECTED));
 
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 76.769)), module, ServerState::IN_BUFFER_OVERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 79.984)), module, ServerState::IN_BUFFER_UNDERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 100.825)), module, ServerState::OUT_BUFFER_OVERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 104.041)), module, ServerState::OUT_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.999, 87.880)), module, ServerState::IN_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.999, 91.096)), module, ServerState::IN_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.999, 111.937)), module, ServerState::OUT_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.999, 115.153)), module, ServerState::OUT_BUFFER_UNDERFLOW));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioServer::OUT1_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioServer::OUT2_OUTPUT));
-
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioServer::IN1_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.933, 93.0)), module, RadioServer::IN2_INPUT));
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioServer::OUTPUT_JACK));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioServer::INPUT_JACK));
 
         portField = createWidget<TextField>(mm2px(Vec(2.8, 29)));
         portField->box.size = mm2px(Vec(24, 8));

@@ -10,6 +10,7 @@
 #include <thread>
 #include "network.h"
 #include "plugin.hpp"
+#include <vector>
 
 class Client {
 
@@ -27,8 +28,10 @@ public:
 
     void setConnectionSettings(ConnectionNegotiation settings);
 
-    void pushData(dsp::Frame<2, float> frame);
-    dsp::Frame<2, float> getData();
+    int getRemoteChannelCount();
+
+    void pushData(dsp::Frame<8, float> frame, int channelCount);
+    dsp::Frame<8, float> getData();
 
 
     bool in_buffer_overflow();
@@ -48,8 +51,8 @@ private:
     bool errorState;
 
     int blockSize;
-    dsp::RingBuffer<dsp::Frame<2>, 16384> inputBuffer;
-    dsp::RingBuffer<dsp::Frame<2>, 16384> outputBuffer;
+    std::vector<dsp::Frame<8>> inputBuffer;
+    std::vector<dsp::Frame<8>> outputBuffer;
 
     void clientLoop();
     void start();

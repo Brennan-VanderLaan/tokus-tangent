@@ -16,8 +16,12 @@ Server::Server(int blockSize) {
 
     addr = {};
 
-    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
-    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
+    remoteSettings.bufferSize = 4096;
+    remoteSettings.inputChannels = 1;
+    remoteSettings.outputChannels = 1;
+
+    inputBuffer = std::vector<dsp::Frame<8>>(4096);
+    outputBuffer = std::vector<dsp::Frame<8>>(4096);
 
     this->blockSize = blockSize;
 }
@@ -45,12 +49,24 @@ bool Server::inErrorState() {
     return errorState;
 }
 
-void Server::pushData(dsp::Frame<2, float> frame) {
-    inputBuffer.push(frame);
+void Server::pushData(dsp::Frame<8, float> frame, int channelCount) {
+    inputBuffer.insert(inputBuffer.begin(), frame);
+    localSettings.inputChannels = channelCount;
 }
 
-dsp::Frame<2, float> Server::getData() {
-    return outputBuffer.shift();
+dsp::Frame<8, float> Server::getData() {
+    if (!outputBuffer.empty()) {
+        dsp::Frame<8, float> sample = outputBuffer.back();
+        outputBuffer.pop_back();
+        return sample;
+    }
+
+
+    return dsp::Frame<8, float>{};
+}
+
+int Server::getRemoteChannelCount() {
+    return remoteSettings.inputChannels;
 }
 
 void Server::clearBuffers() {
@@ -112,7 +128,6 @@ void Server::ServerLoop() {
         INFO("ACCEPTED CONNECTION");
     }
 
-
     if (!errorState && !negotiateSettings()) {
         running = false;
         INFO("Failed to negotiate...");
@@ -123,7 +138,7 @@ void Server::ServerLoop() {
 
         
         int floatSize = sizeof(float);
-        char * buffer = new char[floatSize * 16384];
+        char * buffer = new char[floatSize * 16384 * 8];
 
         while (running) {
             if (inputBuffer.size() > 8192) {
@@ -132,17 +147,25 @@ void Server::ServerLoop() {
 
                 char packetBuffer[sizeof(DataPacket)] = {};
                 packet = (DataPacket *)packetBuffer;
-                packet->channels = 2;
+                packet->channels = localSettings.inputChannels;
                 packet->len = 8192;
 
                 int bufferSize = floatSize * packet->channels * packet->len;
                 float * samples = (float*) buffer;
 
+                //Samples are striped
+                /*
+                 * N -> channels
+                 * s -> s1 ch1,ch2,ch3,...,chN ,  s2 ch1,ch2...chN
+                 */
                 for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
-                    dsp::Frame<2, float> sample = {};
-                    sample = inputBuffer.shift();
-                    samples[i] = sample.samples[0];
-                    samples[i+1] = sample.samples[1];
+                    dsp::Frame<8, float> sample = {};
+                    sample = inputBuffer.back();
+                    inputBuffer.pop_back();
+                    //Load the live data in only...
+                    for (int j = 0; j < packet->channels; j++) {
+                        samples[i+j] = sample.samples[j];
+                    }
                 }
 
                 int err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
@@ -166,6 +189,9 @@ void Server::ServerLoop() {
 
                 packet = (DataPacket *) packetBuffer;
                 bufferSize = floatSize * packet->channels * packet->len;
+                if (remoteSettings.inputChannels != packet->channels) {
+                    remoteSettings.inputChannels = packet->channels;
+                }
 
                 if (bufferSize > 0) {
 
@@ -177,14 +203,13 @@ void Server::ServerLoop() {
                     }
 
                     samples = (float*) buffer;
-
                     for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
-                        dsp::Frame<2, float> sample = {};
-                        sample.samples[0] = samples[i];
-                        sample.samples[1] = samples[i+1];
-                        outputBuffer.push(sample);
+                        dsp::Frame<8, float> sample = {};
+                        for (int j = 0; j < packet->channels; j++) {
+                            sample.samples[j] = samples[i+j];
+                        }
+                        outputBuffer.insert(outputBuffer.begin(), sample);
                     }
-
                 }
             }
         }
@@ -199,7 +224,7 @@ void Server::ServerLoop() {
 
 
 bool Server::in_buffer_overflow() {
-    return inputBuffer.full();
+    return inputBuffer.size() > 32768;
 }
 
 bool Server::in_buffer_underflow() {
@@ -207,7 +232,7 @@ bool Server::in_buffer_underflow() {
 }
 
 bool Server::out_buffer_overflow() {
-    return outputBuffer.full();
+    return outputBuffer.size() > 32768;
 }
 
 bool Server::out_buffer_underflow() {

@@ -1,3 +1,3 @@
 define target hookpost-remote
 
-set solib-search-path ./plugin.dll
+add-symbol-file ./plugins/tokus-tangent/plugin.dll

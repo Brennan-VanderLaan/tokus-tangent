@@ -41,14 +41,12 @@ struct RadioClient : Module {
     };
 
     enum InputIds {
-        IN1_INPUT,
-        IN2_INPUT,
+        INPUT_JACK,
         NUM_INPUTS
     };
 
     enum OutputIds {
-        OUT1_OUTPUT,
-        OUT2_OUTPUT,
+        OUTPUT_JACK,
         NUM_OUTPUTS
     };
 
@@ -93,15 +91,22 @@ struct RadioClient : Module {
     }
 
     void bufferSamples(const ProcessArgs &args) {
-        dsp::Frame<2, float> sample = client.getData();
-        outputs[OUT1_OUTPUT].setVoltage(sample.samples[0]);
-        outputs[OUT2_OUTPUT].setVoltage(sample.samples[1]);
 
-        float in_1 = inputs[IN1_INPUT].getVoltage();
-        float in_2 = inputs[IN2_INPUT].getVoltage();
-        sample.samples[0] = in_1;
-        sample.samples[1] = in_2;
-        client.pushData(sample);
+        int channelCount = inputs[INPUT_JACK].getChannels();
+
+        dsp::Frame<8, float> sample = client.getData();
+        int outputChannelCount = client.getRemoteChannelCount();
+
+        outputs[OUTPUT_JACK].setChannels(outputChannelCount);
+        for (int i = 0; i < outputChannelCount; i++) {
+            outputs[OUTPUT_JACK].setVoltage(sample.samples[i], 0);
+        }
+
+        sample = {};
+        for (int i = 0; i < channelCount; i++) {
+            sample.samples[i] = inputs[INPUT_JACK].getVoltage(i);
+        }
+        client.pushData(sample, channelCount);
 
     }
 
@@ -224,16 +229,13 @@ struct RadioClientWidget : ModuleWidget {
                                                                 ClientState::CONNECTED));
 
 
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 76.769)), module, ClientState::IN_BUFFER_OVERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 79.984)), module, ClientState::IN_BUFFER_UNDERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 100.825)), module, ClientState::OUT_BUFFER_OVERFLOW));
-        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(23.935, 104.041)), module, ClientState::OUT_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.998, 87.881)), module, ClientState::IN_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.998, 91.097)), module, ClientState::IN_BUFFER_UNDERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.998, 111.984)), module, ClientState::OUT_BUFFER_OVERFLOW));
+        addChild((Widget *)createLight<SmallLight<RedLight>>(mm2px(Vec(15.998, 115.200)), module, ClientState::OUT_BUFFER_UNDERFLOW));
 
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioClient::OUT1_OUTPUT));
-        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(19.933, 116.407)), module, RadioClient::OUT2_OUTPUT));
-
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioClient::IN1_INPUT));
-        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(19.933, 93.0)), module, RadioClient::IN2_INPUT));
+        addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(6.862, 116.407)), module, RadioClient::OUTPUT_JACK));
+        addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioClient::INPUT_JACK));
 
         hostField = createWidget<TextField>(mm2px(Vec(2.8, 18)));
         hostField->box.size = mm2px(Vec(24, 8));

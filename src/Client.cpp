@@ -16,8 +16,12 @@ Client::Client(int blockSize) {
     connected = false;
     port = 5555;
 
-    inputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
-    outputBuffer = dsp::RingBuffer<dsp::Frame<2>, 16384>{};
+    inputBuffer = std::vector<dsp::Frame<8>>(4096);
+    outputBuffer = std::vector<dsp::Frame<8>>(4096);
+
+    remoteSettings.bufferSize = 4096;
+    remoteSettings.inputChannels = 1;
+    remoteSettings.outputChannels = 1;
 
     this->blockSize = blockSize;
 }
@@ -45,12 +49,23 @@ bool Client::inErrorState() {
     return errorState;
 }
 
-void Client::pushData(dsp::Frame<2, float> frame) {
-    inputBuffer.push(frame);
+void Client::pushData(dsp::Frame<8, float> frame, int channelCount) {
+    inputBuffer.insert(inputBuffer.begin(), frame);
+    localSettings.inputChannels = channelCount;
 }
 
-dsp::Frame<2, float> Client::getData() {
-    return outputBuffer.shift();
+dsp::Frame<8, float> Client::getData() {
+    if (!outputBuffer.empty()) {
+        dsp::Frame<8, float> sample = outputBuffer.back();
+        outputBuffer.pop_back();
+        return sample;
+    }
+
+    return dsp::Frame<8, float>{};
+}
+
+int Client::getRemoteChannelCount() {
+    return remoteSettings.inputChannels;
 }
 
 void Client::clearBuffers() {
@@ -59,7 +74,7 @@ void Client::clearBuffers() {
 }
 
 bool Client::in_buffer_overflow() {
-    return inputBuffer.full();
+    return inputBuffer.size() > 32768;
 }
 
 bool Client::in_buffer_underflow() {
@@ -67,7 +82,7 @@ bool Client::in_buffer_underflow() {
 }
 
 bool Client::out_buffer_overflow() {
-    return outputBuffer.full();
+    return outputBuffer.size() > 32768;
 }
 
 bool Client::out_buffer_underflow() {
@@ -118,7 +133,7 @@ void Client::clientLoop() {
         connected = true;
         try {
             int floatSize = sizeof(float);
-            char * buffer = new char[floatSize * 16384];
+            char * buffer = new char[floatSize * 16384 * 8];
 
             while (running) {
                 
@@ -136,6 +151,10 @@ void Client::clientLoop() {
                 //Figure out the size of the data trailer
                 int bufferSize = floatSize * packet->channels * packet->len;
 
+                if (packet->channels != remoteSettings.inputChannels) {
+                    remoteSettings.inputChannels = packet->channels;
+                }
+
                 err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
                 if (err == SOCKET_ERROR) {
                     INFO("Error receiving datapacket %ld", WSAGetLastError());
@@ -146,10 +165,11 @@ void Client::clientLoop() {
                 //Walk the buffer for samples
                 float * sampleBuffer = (float *) buffer;
                 for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
-                    dsp::Frame<2, float> sample = {};
-                    sample.samples[0] = sampleBuffer[i];
-                    sample.samples[1] = sampleBuffer[i+1];
-                    outputBuffer.push(sample);
+                    dsp::Frame<8, float> sample = {};
+                    for (int j = 0; j < packet->channels; j++) {
+                        sample.samples[j] = sampleBuffer[i+j];
+                    }
+                    outputBuffer.insert(outputBuffer.begin(), sample);
                 }
 
                 //Decide how much we are sending back
@@ -158,15 +178,18 @@ void Client::clientLoop() {
                 } else {
                     packet->len = inputBuffer.size();
                 }
+                packet->channels = localSettings.inputChannels;
 
                 //Load the buffer
                 bufferSize = floatSize * packet->channels * packet->len;
                 if (bufferSize > 0) {
                     for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
-                        dsp::Frame<2, float> sample = {};
-                        sample = inputBuffer.shift();
-                        sampleBuffer[i] = sample.samples[0];
-                        sampleBuffer[i+1] = sample.samples[1];
+                        dsp::Frame<8, float> sample = {};
+                        sample = inputBuffer.back();
+                        inputBuffer.pop_back();
+                        for (int j = 0; j < packet->channels; j++) {
+                            sampleBuffer[i+j] = sample.samples[j];
+                        }
                     }
                 }
 
