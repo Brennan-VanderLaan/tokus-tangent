@@ -84,7 +84,7 @@ into VCV Rack.
 The plan is to use TCP as the initial transport and focus on goals in this order
 
 - *Done* - Static buffer size, implement RadioClient & RadioBroadcast to use address typed in (no auto-discovery)
-- Polyphonic cable support
+- *Done* Polyphonic cable support
 - Expose buffer status to UI (sort of done... needs to be better)
 - Add latency tracking
 - Add buffer tracking
