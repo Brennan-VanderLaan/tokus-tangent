@@ -19,8 +19,8 @@ Client::Client(int blockSize) {
     inputBufferLock = nullptr;
     outputBufferLock = nullptr;
 
-    inputBuffer = std::deque<dsp::Frame<8> >(16384);
-    outputBuffer = std::deque<dsp::Frame<8> >(16384);
+    inputBuffer = std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS> >(16384);
+    outputBuffer = std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS> >(16384);
 
     remoteSettings.bufferSize = 4096;
     remoteSettings.inputChannels = 1;
@@ -59,24 +59,43 @@ bool Client::inErrorState() {
     return errorState;
 }
 
-void Client::pushData(dsp::Frame<8, float> frame, int channelCount) {
-    inputBufferLock->lock();
-    inputBuffer.push_front(frame);
-    inputBufferLock->unlock();
+void Client::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount) {
+
+    int counter = 0;
+    while(in_buffer_overflow()) {
+        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        counter += 1;
+
+        if (counter > 4) break;
+    }
+
+    if (!in_buffer_overflow()) {
+        inputBufferLock->lock();
+        inputBuffer.push_front(frame);
+        inputBufferLock->unlock();
+    }
     localSettings.inputChannels = channelCount;
 }
 
-dsp::Frame<8, float> Client::getData() {
+dsp::Frame<engine::PORT_MAX_CHANNELS, float> Client::getData() {
+    int counter = 0;
+    while(outputBuffer.empty()) {
+        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        counter += 1;
+
+        if (counter > 4) break;
+    }
+
     outputBufferLock->lock();
     if (!outputBuffer.empty()) {
-        dsp::Frame<8, float> sample = outputBuffer.back();
+        dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = outputBuffer.back();
         outputBuffer.pop_back();
         outputBufferLock->unlock();
         return sample;
     }
 
     outputBufferLock->unlock();
-    return dsp::Frame<8, float>{};
+    return dsp::Frame<engine::PORT_MAX_CHANNELS, float>{};
 }
 
 int Client::getRemoteChannelCount() {
@@ -89,7 +108,7 @@ void Client::clearBuffers() {
 }
 
 bool Client::in_buffer_overflow() {
-    return inputBuffer.size() > 32768;
+    return inputBuffer.size() > bufferSize;
 }
 
 bool Client::in_buffer_underflow() {
@@ -97,13 +116,24 @@ bool Client::in_buffer_underflow() {
 }
 
 bool Client::out_buffer_overflow() {
-    return outputBuffer.size() > 32768;
+    return outputBuffer.size() > bufferSize;
 }
 
 bool Client::out_buffer_underflow() {
     return outputBuffer.empty();
 }
 
+int Client::getBlockSize() {
+    return blockSize;
+}
+
+void Client::setBufferSize(int size) {
+    bufferSize = size;
+}
+
+int Client::getBufferSize() {
+    return bufferSize;
+}
 
 void Client::clientLoop() {
 
@@ -132,6 +162,13 @@ void Client::clientLoop() {
         errorState = true;
     }
 
+    if (result == nullptr) {
+        running = false;
+        errorState = true;
+        shutdownClient();
+        return;
+    }
+
     //Connect to it...
     err = connect(clientSocket, result->ai_addr, result->ai_addrlen);
     if (err == -1) {
@@ -148,7 +185,7 @@ void Client::clientLoop() {
         connected = true;
         try {
             int floatSize = sizeof(float);
-            char * buffer = new char[floatSize * 16384 * 8];
+            char * buffer = new char[floatSize * 32768 * engine::PORT_MAX_CHANNELS];
 
             while (running) {
                 
@@ -160,6 +197,8 @@ void Client::clientLoop() {
                 err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
                 if (err == SOCKET_ERROR) {
                     INFO("Error receiving datapacket %ld", WSAGetLastError());
+                    running = false;
+                    break;
                 }
 
                 packet = (DataPacket *)packetBuffer;
@@ -182,28 +221,38 @@ void Client::clientLoop() {
                 //Walk the buffer for samples
                 float * sampleBuffer = (float *) buffer;
                 for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
-                    dsp::Frame<8, float> sample = {};
+                    dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
                     for (int j = 0; j < packet->channels; j++) {
                         sample.samples[j] = sampleBuffer[i+j];
+                    }
+
+
+                    //Buffer is full... wait?
+                    while (out_buffer_overflow()) {
+                        std::this_thread::sleep_for (std::chrono::microseconds(1));
                     }
                     outputBufferLock->lock();
                     outputBuffer.push_front(sample);
                     outputBufferLock->unlock();
+                    
                 }
 
                 //Decide how much we are sending back
-                if (inputBuffer.size() > 8192) {
-                    packet->len = 8192;
+                inputBufferLock->lock();
+                if (inputBuffer.size() > 32000) {
+                    packet->len = 32000;
                 } else {
                     packet->len = inputBuffer.size();
                 }
+                blockSize = packet->len;
+                inputBufferLock->unlock();
                 packet->channels = localSettings.inputChannels;
 
                 //Load the buffer
                 bufferSize = floatSize * packet->channels * packet->len;
                 if (bufferSize > 0) {
                     for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
-                        dsp::Frame<8, float> sample = {};
+                        dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
                         inputBufferLock->lock();
                         if (!inputBuffer.empty()) {
                             sample = inputBuffer.back();
@@ -235,6 +284,8 @@ void Client::clientLoop() {
                         break;
                     }
                 }
+
+                std::this_thread::sleep_for (std::chrono::microseconds(2));
 
             }
 

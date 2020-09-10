@@ -23,8 +23,8 @@ Server::Server(int blockSize) {
     inputBufferLock = nullptr;
     outputBufferLock = nullptr;
 
-    inputBuffer = std::deque<dsp::Frame<8> >(16384);
-    outputBuffer = std::deque<dsp::Frame<8> >(16384);
+    inputBuffer = std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS> >(16384);
+    outputBuffer = std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS> >(16384);
 
     this->blockSize = blockSize;
 }
@@ -58,25 +58,43 @@ bool Server::inErrorState() {
     return errorState;
 }
 
-void Server::pushData(dsp::Frame<8, float> frame, int channelCount) {
+void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount) {
+
+    int counter = 0;
+    while(in_buffer_overflow()) {
+        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        counter += 1;
+        if (counter > 8) break;
+    }
+
+
     inputBufferLock->lock();
     inputBuffer.push_front(frame);
     inputBufferLock->unlock();
+    
     localSettings.inputChannels = channelCount;
 }
 
-dsp::Frame<8, float> Server::getData() {
+dsp::Frame<engine::PORT_MAX_CHANNELS, float> Server::getData() {
+
+    int counter = 0;
+    while(outputBuffer.empty()) {
+        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        counter += 1;
+        if (counter > 4) break;
+    }
+
 
     outputBufferLock->lock();
     if (!outputBuffer.empty()) {
-        dsp::Frame<8, float> sample = outputBuffer.back();
+        dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = outputBuffer.back();
         outputBuffer.pop_back();
         
         outputBufferLock->unlock();
         return sample;
     }
     outputBufferLock->unlock();
-    return dsp::Frame<8, float>{};
+    return dsp::Frame<engine::PORT_MAX_CHANNELS, float>{};
 }
 
 int Server::getRemoteChannelCount() {
@@ -90,6 +108,14 @@ void Server::clearBuffers() {
 
 bool Server::isNegotiating() {
     return negotiating;
+}
+
+int Server::getBlockSize() {
+    return blockSize;
+}
+
+void Server::setBlockSize(int size) {
+    blockSize = size;
 }
 
 
@@ -152,17 +178,17 @@ void Server::ServerLoop() {
 
         
         int floatSize = sizeof(float);
-        char * buffer = new char[floatSize * 16384 * 8];
+        char * buffer = new char[floatSize * 32768 * engine::PORT_MAX_CHANNELS];
 
         while (running) {
-            if (inputBuffer.size() > 8192) {
+            if (inputBuffer.size() > blockSize) {
 
                 DataPacket * packet = NULL;
 
                 char packetBuffer[sizeof(DataPacket)] = {};
                 packet = (DataPacket *)packetBuffer;
                 packet->channels = localSettings.inputChannels;
-                packet->len = 8192;
+                packet->len = blockSize;
 
                 int bufferSize = floatSize * packet->channels * packet->len;
                 float * samples = (float*) buffer;
@@ -173,7 +199,7 @@ void Server::ServerLoop() {
                  * s -> s1 ch1,ch2,ch3,...,chN ,  s2 ch1,ch2...chN
                  */
                 for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
-                    dsp::Frame<8, float> sample = {};
+                    dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
                     inputBufferLock->lock();
                     if (!inputBuffer.empty()) {
                         sample = inputBuffer.back();
@@ -224,7 +250,7 @@ void Server::ServerLoop() {
 
                     samples = (float*) buffer;
                     for (int i = 0; i < packet->channels * packet->len; i+= packet->channels) {
-                        dsp::Frame<8, float> sample = {};
+                        dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
                         for (int j = 0; j < packet->channels; j++) {
                             sample.samples[j] = samples[i+j];
                         }
@@ -234,6 +260,10 @@ void Server::ServerLoop() {
                     }
                 }
             }
+
+
+            std::this_thread::sleep_for (std::chrono::microseconds(2));
+
         }
 
         delete[] buffer;
@@ -244,9 +274,17 @@ void Server::ServerLoop() {
     errorState = true;
 }
 
+void Server::setBufferSize(int size) {
+
+    if (size < 0) {
+        size = 1;
+    }
+
+    bufferSize = size;
+}
 
 bool Server::in_buffer_overflow() {
-    return inputBuffer.size() > 32768;
+    return inputBuffer.size() > bufferSize;
 }
 
 bool Server::in_buffer_underflow() {
@@ -254,7 +292,7 @@ bool Server::in_buffer_underflow() {
 }
 
 bool Server::out_buffer_overflow() {
-    return outputBuffer.size() > 32768;
+    return outputBuffer.size() > bufferSize;
 }
 
 bool Server::out_buffer_underflow() {

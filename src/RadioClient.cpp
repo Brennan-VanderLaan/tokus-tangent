@@ -29,6 +29,8 @@ struct RadioClient : Module {
     ClientState moduleState = NOT_CONNECTED;
     int errorCounter = 0;
 
+    int intervalCounter = 0;
+
     TextField *hostFieldWidget;
     TextField *portFieldWidget;
     TextField *blockSizeFieldWidget;
@@ -88,13 +90,15 @@ struct RadioClient : Module {
         } else {
             lights[ClientState::OUT_BUFFER_UNDERFLOW].setSmoothBrightness(0.0f, 1.0f);
         }
+
+
     }
 
     void bufferSamples(const ProcessArgs &args) {
 
         int channelCount = inputs[INPUT_JACK].getChannels();
 
-        dsp::Frame<8, float> sample = client.getData();
+        dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = client.getData();
         int outputChannelCount = client.getRemoteChannelCount();
 
         outputs[OUTPUT_JACK].setChannels(outputChannelCount);
@@ -113,7 +117,7 @@ struct RadioClient : Module {
     void tryToConnect(const ProcessArgs &args) {
         ConnectionNegotiation settings = ConnectionNegotiation();
         settings.outputChannels = 1;
-        settings.inputChannels = 1;
+        settings.inputChannels = inputs[INPUT_JACK].channels;
         if (blockSizeFieldWidget->text.length() > 0) {
             settings.blockSize = std::stoi(blockSizeFieldWidget->text);
         } else {
@@ -149,12 +153,32 @@ struct RadioClient : Module {
         }
     }
 
+    void interval() {
+        intervalCounter += 1;
+
+        if (intervalCounter > 10000) {
+            intervalCounter = 0;
+
+            blockSizeFieldWidget->setText(std::to_string(client.getBlockSize()));
+
+            try {
+                if (stoi(bufferSizeFieldWidget->text) != client.getBufferSize()) {
+                    client.setBufferSize(stoi(bufferSizeFieldWidget->text));
+                }
+            } catch (std::exception &e) {
+
+            }
+
+        }
+    }
+
     void process(const ProcessArgs &args) override {
         //TODO: Maybe don't reset the lights per frame?
         switch (moduleState) {
             case ClientState::CONNECTED:
                 lights[ClientState::CONNECTED].setSmoothBrightness(10.0f, .5f);
                 reportBufferState();
+                interval();
                 bufferSamples(args);
                 if (!client.isConnected() || client.inErrorState()) {
                     moduleState = ClientState::ERROR_STATE;
@@ -238,7 +262,7 @@ struct RadioClientWidget : ModuleWidget {
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioClient::INPUT_JACK));
 
         hostField = createWidget<TextField>(mm2px(Vec(2.8, 18)));
-        hostField->box.size = mm2px(Vec(24, 8));
+        hostField->box.size = mm2px(Vec(30, 8));
         hostField->placeholder = "127.0.0.1";
         hostField->text = "127.0.0.1";
         hostField->multiline = false;
@@ -246,7 +270,7 @@ struct RadioClientWidget : ModuleWidget {
         addChild(hostField);
 
         portField = createWidget<TextField>(mm2px(Vec(2.8, 29)));
-        portField->box.size = mm2px(Vec(24, 8));
+        portField->box.size = mm2px(Vec(30, 8));
         portField->placeholder = "5555";
         portField->text = "5555";
         portField->multiline = false;
@@ -254,7 +278,7 @@ struct RadioClientWidget : ModuleWidget {
         addChild(portField);
 
         blockSizeField = createWidget<TextField>(mm2px(Vec(2.8, 52)));
-        blockSizeField->box.size = mm2px(Vec(24, 8));
+        blockSizeField->box.size = mm2px(Vec(30, 8));
         blockSizeField->placeholder = "256";
         blockSizeField->text = "256";
         blockSizeField->multiline = false;
@@ -262,7 +286,7 @@ struct RadioClientWidget : ModuleWidget {
         addChild(blockSizeField);
 
         bufferSizeField = createWidget<TextField>(mm2px(Vec(2.8, 41)));
-        bufferSizeField->box.size = mm2px(Vec(24, 8));
+        bufferSizeField->box.size = mm2px(Vec(30, 8));
         bufferSizeField->placeholder = "4096";
         bufferSizeField->text = "4096";
         bufferSizeField->multiline = false;

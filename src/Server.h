@@ -30,9 +30,13 @@ public:
     void setConnectionSettings(ConnectionNegotiation settings);
 
     int getRemoteChannelCount();
+    int getBlockSize();
+    void setBlockSize(int size);
 
-    void pushData(dsp::Frame<8, float> frame, int channelCount);
-    dsp::Frame<8, float> getData();
+    void setBufferSize(int size);
+
+    void pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount);
+    dsp::Frame<engine::PORT_MAX_CHANNELS, float> getData();
 
     bool in_buffer_overflow();
     bool in_buffer_underflow();
@@ -55,8 +59,9 @@ private:
     int port;
 
     int blockSize;
-    std::deque<dsp::Frame<8>> inputBuffer;
-    std::deque<dsp::Frame<8>> outputBuffer;
+    int bufferSize;
+    std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS>> inputBuffer;
+    std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS>> outputBuffer;
 
     std::mutex * inputBufferLock;
     std::mutex * outputBufferLock;

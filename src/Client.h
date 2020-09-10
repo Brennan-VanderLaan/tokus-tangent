@@ -31,8 +31,13 @@ public:
 
     int getRemoteChannelCount();
 
-    void pushData(dsp::Frame<8, float> frame, int channelCount);
-    dsp::Frame<8, float> getData();
+    int getBlockSize();
+
+    void setBufferSize(int size);
+    int getBufferSize();
+
+    void pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount);
+    dsp::Frame<engine::PORT_MAX_CHANNELS, float> getData();
 
 
     bool in_buffer_overflow();
@@ -45,6 +50,7 @@ private:
     SOCKET clientSocket;
     std::string remoteHost;
     int port;
+    int bufferSize;
     ConnectionNegotiation localSettings;
     ConnectionNegotiation remoteSettings;
     bool running;
@@ -52,8 +58,8 @@ private:
     bool errorState;
 
     int blockSize;
-    std::deque<dsp::Frame<8>> inputBuffer;
-    std::deque<dsp::Frame<8>> outputBuffer;
+    std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS>> inputBuffer;
+    std::deque<dsp::Frame<engine::PORT_MAX_CHANNELS>> outputBuffer;
 
     std::mutex * inputBufferLock;
     std::mutex * outputBufferLock;
