@@ -94,7 +94,6 @@ struct RadioClient : Module {
 
         int channelCount = inputs[INPUT_JACK].getChannels();
 
-        INFO("GD");
         dsp::Frame<8, float> sample = client.getData();
         int outputChannelCount = client.getRemoteChannelCount();
 
@@ -103,7 +102,6 @@ struct RadioClient : Module {
             outputs[OUTPUT_JACK].setVoltage(sample.samples[i], i);
         }
 
-        INFO("SD");
         sample = {};
         for (int i = 0; i < channelCount; i++) {
             sample.samples[i] = inputs[INPUT_JACK].getVoltage(i);
