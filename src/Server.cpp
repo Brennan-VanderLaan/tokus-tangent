@@ -20,14 +20,23 @@ Server::Server(int blockSize) {
     remoteSettings.inputChannels = 1;
     remoteSettings.outputChannels = 1;
 
-    inputBuffer = std::vector<dsp::Frame<8>>(4096);
-    outputBuffer = std::vector<dsp::Frame<8>>(4096);
+    inputBufferLock = nullptr;
+    outputBufferLock = nullptr;
+
+    inputBuffer = std::deque<dsp::Frame<8> >(16384);
+    outputBuffer = std::deque<dsp::Frame<8> >(16384);
 
     this->blockSize = blockSize;
 }
 
 Server::~Server() {
     shutdownServer();
+    if (inputBufferLock != nullptr) {
+        delete inputBufferLock;
+    }
+    if (outputBufferLock != nullptr) {
+        delete outputBufferLock;
+    }
 }
 
 void Server::start() {
@@ -50,18 +59,23 @@ bool Server::inErrorState() {
 }
 
 void Server::pushData(dsp::Frame<8, float> frame, int channelCount) {
-    inputBuffer.insert(inputBuffer.begin(), frame);
+    inputBufferLock->lock();
+    inputBuffer.push_front(frame);
+    inputBufferLock->unlock();
     localSettings.inputChannels = channelCount;
 }
 
 dsp::Frame<8, float> Server::getData() {
+
+    outputBufferLock->lock();
     if (!outputBuffer.empty()) {
         dsp::Frame<8, float> sample = outputBuffer.back();
         outputBuffer.pop_back();
+        
+        outputBufferLock->unlock();
         return sample;
     }
-
-
+    outputBufferLock->unlock();
     return dsp::Frame<8, float>{};
 }
 
@@ -160,8 +174,12 @@ void Server::ServerLoop() {
                  */
                 for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
                     dsp::Frame<8, float> sample = {};
-                    sample = inputBuffer.back();
-                    inputBuffer.pop_back();
+                    inputBufferLock->lock();
+                    if (!inputBuffer.empty()) {
+                        sample = inputBuffer.back();
+                        inputBuffer.pop_back();
+                    }
+                    inputBufferLock->unlock();
                     //Load the live data in only...
                     for (int j = 0; j < packet->channels; j++) {
                         samples[i+j] = sample.samples[j];
@@ -173,11 +191,13 @@ void Server::ServerLoop() {
                     INFO("Error sending packet... %d", WSAGetLastError());
                 }
 
-                err = send(clientSocket, buffer, bufferSize, 0);
-                if (err == SOCKET_ERROR) {
-                    INFO("Error sending data... %ld", WSAGetLastError());
-                    running = false;
-                    break;
+                if (bufferSize > 0) {
+                    err = send(clientSocket, buffer, bufferSize, 0);
+                    if (err == SOCKET_ERROR) {
+                        INFO("Error sending data... %ld", WSAGetLastError());
+                        running = false;
+                        break;
+                    }
                 }
 
                 err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
@@ -208,7 +228,9 @@ void Server::ServerLoop() {
                         for (int j = 0; j < packet->channels; j++) {
                             sample.samples[j] = samples[i+j];
                         }
-                        outputBuffer.insert(outputBuffer.begin(), sample);
+                        outputBufferLock->lock();
+                        outputBuffer.push_front(sample);
+                        outputBufferLock->unlock();
                     }
                 }
             }
@@ -242,6 +264,9 @@ bool Server::out_buffer_underflow() {
 void Server::init() {
     WSADATA WSAData;
     WSAStartup(MAKEWORD(2, 2), &WSAData);
+
+    inputBufferLock = new std::mutex();
+    outputBufferLock = new std::mutex();
 }
 
 bool Server::startListen(int port) {

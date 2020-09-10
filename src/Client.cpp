@@ -16,8 +16,11 @@ Client::Client(int blockSize) {
     connected = false;
     port = 5555;
 
-    inputBuffer = std::vector<dsp::Frame<8>>(4096);
-    outputBuffer = std::vector<dsp::Frame<8>>(4096);
+    inputBufferLock = nullptr;
+    outputBufferLock = nullptr;
+
+    inputBuffer = std::deque<dsp::Frame<8> >(16384);
+    outputBuffer = std::deque<dsp::Frame<8> >(16384);
 
     remoteSettings.bufferSize = 4096;
     remoteSettings.inputChannels = 1;
@@ -28,6 +31,13 @@ Client::Client(int blockSize) {
 
 Client::~Client() {
     shutdownClient();
+    
+    if (inputBufferLock != nullptr) {
+        delete inputBufferLock;
+    }
+    if (outputBufferLock != nullptr) {
+        delete outputBufferLock;
+    }
 }
 
 void Client::start() {
@@ -50,17 +60,22 @@ bool Client::inErrorState() {
 }
 
 void Client::pushData(dsp::Frame<8, float> frame, int channelCount) {
-    inputBuffer.insert(inputBuffer.begin(), frame);
+    inputBufferLock->lock();
+    inputBuffer.push_front(frame);
+    inputBufferLock->unlock();
     localSettings.inputChannels = channelCount;
 }
 
 dsp::Frame<8, float> Client::getData() {
+    outputBufferLock->lock();
     if (!outputBuffer.empty()) {
         dsp::Frame<8, float> sample = outputBuffer.back();
         outputBuffer.pop_back();
+        outputBufferLock->unlock();
         return sample;
     }
 
+    outputBufferLock->unlock();
     return dsp::Frame<8, float>{};
 }
 
@@ -155,11 +170,13 @@ void Client::clientLoop() {
                     remoteSettings.inputChannels = packet->channels;
                 }
 
-                err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
-                if (err == SOCKET_ERROR) {
-                    INFO("Error receiving datapacket %ld", WSAGetLastError());
-                    running = false;
-                    break;
+                if (bufferSize > 0) {
+                    err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
+                    if (err == SOCKET_ERROR) {
+                        INFO("Error receiving datapacket %ld", WSAGetLastError());
+                        running = false;
+                        break;
+                    }
                 }
 
                 //Walk the buffer for samples
@@ -169,7 +186,9 @@ void Client::clientLoop() {
                     for (int j = 0; j < packet->channels; j++) {
                         sample.samples[j] = sampleBuffer[i+j];
                     }
-                    outputBuffer.insert(outputBuffer.begin(), sample);
+                    outputBufferLock->lock();
+                    outputBuffer.push_front(sample);
+                    outputBufferLock->unlock();
                 }
 
                 //Decide how much we are sending back
@@ -185,8 +204,13 @@ void Client::clientLoop() {
                 if (bufferSize > 0) {
                     for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
                         dsp::Frame<8, float> sample = {};
-                        sample = inputBuffer.back();
-                        inputBuffer.pop_back();
+                        inputBufferLock->lock();
+                        if (!inputBuffer.empty()) {
+                            sample = inputBuffer.back();
+                            inputBuffer.pop_back();
+                        }
+                        inputBufferLock->unlock();
+
                         for (int j = 0; j < packet->channels; j++) {
                             sampleBuffer[i+j] = sample.samples[j];
                         }
@@ -228,10 +252,12 @@ void Client::clientLoop() {
 
 
 void Client::init() {
-
     //TODO: this should be centralized...
     WSADATA WSAData;
     WSAStartup(MAKEWORD(2, 2), &WSAData);
+
+    inputBufferLock = new std::mutex();
+    outputBufferLock = new std::mutex();
 }
 
 bool Client::connectToHost(const std::string& host, int port) {

@@ -65,6 +65,8 @@ struct RadioServer : Module {
         addr = {};
         server = Server();
 
+        server.init();
+
         moduleState = ServerState::ERROR_STATE;
     }
 
@@ -102,6 +104,7 @@ struct RadioServer : Module {
 
         int channelCount = inputs[INPUT_JACK].getChannels();
 
+        INFO("GD");
         dsp::Frame<8, float> sample = server.getData();
         int outputChannelCount = server.getRemoteChannelCount();
 
@@ -110,6 +113,7 @@ struct RadioServer : Module {
             outputs[OUTPUT_JACK].setVoltage(sample.samples[i], i);
         }
 
+        INFO("SD");
         sample = {};
         for (int i = 0; i < channelCount; i++) {
             sample.samples[i] = inputs[INPUT_JACK].getVoltage(i);

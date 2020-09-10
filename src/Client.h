@@ -11,6 +11,7 @@
 #include "network.h"
 #include "plugin.hpp"
 #include <vector>
+#include <mutex>
 
 class Client {
 
@@ -51,8 +52,11 @@ private:
     bool errorState;
 
     int blockSize;
-    std::vector<dsp::Frame<8>> inputBuffer;
-    std::vector<dsp::Frame<8>> outputBuffer;
+    std::deque<dsp::Frame<8>> inputBuffer;
+    std::deque<dsp::Frame<8>> outputBuffer;
+
+    std::mutex * inputBufferLock;
+    std::mutex * outputBufferLock;
 
     void clientLoop();
     void start();

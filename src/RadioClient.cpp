@@ -94,14 +94,16 @@ struct RadioClient : Module {
 
         int channelCount = inputs[INPUT_JACK].getChannels();
 
+        INFO("GD");
         dsp::Frame<8, float> sample = client.getData();
         int outputChannelCount = client.getRemoteChannelCount();
 
         outputs[OUTPUT_JACK].setChannels(outputChannelCount);
         for (int i = 0; i < outputChannelCount; i++) {
-            outputs[OUTPUT_JACK].setVoltage(sample.samples[i], 0);
+            outputs[OUTPUT_JACK].setVoltage(sample.samples[i], i);
         }
 
+        INFO("SD");
         sample = {};
         for (int i = 0; i < channelCount; i++) {
             sample.samples[i] = inputs[INPUT_JACK].getVoltage(i);
@@ -112,8 +114,8 @@ struct RadioClient : Module {
 
     void tryToConnect(const ProcessArgs &args) {
         ConnectionNegotiation settings = ConnectionNegotiation();
-        settings.outputChannels = 2;
-        settings.inputChannels = 2;
+        settings.outputChannels = 1;
+        settings.inputChannels = 1;
         if (blockSizeFieldWidget->text.length() > 0) {
             settings.blockSize = std::stoi(blockSizeFieldWidget->text);
         } else {

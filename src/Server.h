@@ -10,6 +10,7 @@
 #include "network.h"
 #include "plugin.hpp"
 #include <vector>
+#include <mutex>
 
 class Server {
 
@@ -54,8 +55,11 @@ private:
     int port;
 
     int blockSize;
-    std::vector<dsp::Frame<8>> inputBuffer;
-    std::vector<dsp::Frame<8>> outputBuffer;
+    std::deque<dsp::Frame<8>> inputBuffer;
+    std::deque<dsp::Frame<8>> outputBuffer;
+
+    std::mutex * inputBufferLock;
+    std::mutex * outputBufferLock;
 
     void ServerLoop();
     void start();
