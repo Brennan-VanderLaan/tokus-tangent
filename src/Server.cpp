@@ -62,7 +62,7 @@ void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
 
     int counter = 0;
     while(in_buffer_overflow()) {
-        std::this_thread::sleep_for (std::chrono::microseconds(5));
+        std::this_thread::sleep_for (std::chrono::microseconds(15));
         counter += 1;
         if (counter > 18) break;
     }

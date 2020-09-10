@@ -63,7 +63,7 @@ void Client::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
 
     int counter = 0;
     while(in_buffer_overflow()) {
-        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        std::this_thread::sleep_for (std::chrono::microseconds(15));
         counter += 1;
 
         if (counter > 4) break;
@@ -204,6 +204,7 @@ void Client::clientLoop() {
                 packet = (DataPacket *)packetBuffer;
                 //Figure out the size of the data trailer
                 int bufferSize = floatSize * packet->channels * packet->len;
+                int returnLimit = packet->len;
 
                 if (packet->channels != remoteSettings.inputChannels) {
                     remoteSettings.inputChannels = packet->channels;
@@ -245,8 +246,8 @@ void Client::clientLoop() {
 
                 //Decide how much we are sending back
                 inputBufferLock->lock();
-                if (inputBuffer.size() > 32000) {
-                    packet->len = 32000;
+                if (inputBuffer.size() > returnLimit) {
+                    packet->len = returnLimit;
                 } else {
                     packet->len = inputBuffer.size();
                 }
@@ -257,19 +258,18 @@ void Client::clientLoop() {
                 //Load the buffer
                 bufferSize = floatSize * packet->channels * packet->len;
                 if (bufferSize > 0) {
+                    inputBufferLock->lock();
                     for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
                         dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
-                        inputBufferLock->lock();
                         if (!inputBuffer.empty()) {
                             sample = inputBuffer.back();
                             inputBuffer.pop_back();
                         }
-                        inputBufferLock->unlock();
-
                         for (int j = 0; j < packet->channels; j++) {
                             sampleBuffer[i+j] = sample.samples[j];
                         }
                     }
+                    inputBufferLock->unlock();
                 }
 
                 //Tell the server how many samples we are sending
