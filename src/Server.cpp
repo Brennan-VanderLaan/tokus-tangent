@@ -62,9 +62,9 @@ void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
 
     int counter = 0;
     while(in_buffer_overflow()) {
-        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        std::this_thread::sleep_for (std::chrono::microseconds(5));
         counter += 1;
-        if (counter > 8) break;
+        if (counter > 18) break;
     }
 
 
@@ -198,19 +198,19 @@ void Server::ServerLoop() {
                  * N -> channels
                  * s -> s1 ch1,ch2,ch3,...,chN ,  s2 ch1,ch2...chN
                  */
+                inputBufferLock->lock();
                 for (int i = 0; i < packet->channels * packet->len; i += packet->channels) {
                     dsp::Frame<engine::PORT_MAX_CHANNELS, float> sample = {};
-                    inputBufferLock->lock();
                     if (!inputBuffer.empty()) {
                         sample = inputBuffer.back();
                         inputBuffer.pop_back();
                     }
-                    inputBufferLock->unlock();
                     //Load the live data in only...
                     for (int j = 0; j < packet->channels; j++) {
                         samples[i+j] = sample.samples[j];
                     }
                 }
+                inputBufferLock->unlock();
 
                 int err = send(clientSocket, packetBuffer, sizeof(DataPacket), 0);
                 if (err == SOCKET_ERROR) {
@@ -237,6 +237,12 @@ void Server::ServerLoop() {
                 bufferSize = floatSize * packet->channels * packet->len;
                 if (remoteSettings.inputChannels != packet->channels) {
                     remoteSettings.inputChannels = packet->channels;
+                    inputBufferLock->lock();
+                    outputBufferLock->lock();
+                    inputBuffer.clear();
+                    outputBuffer.clear();
+                    inputBufferLock->unlock();
+                    outputBufferLock->unlock();
                 }
 
                 if (bufferSize > 0) {

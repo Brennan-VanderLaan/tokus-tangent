@@ -207,6 +207,12 @@ void Client::clientLoop() {
 
                 if (packet->channels != remoteSettings.inputChannels) {
                     remoteSettings.inputChannels = packet->channels;
+                    inputBufferLock->lock();
+                    outputBufferLock->lock();
+                    inputBuffer.clear();
+                    outputBuffer.clear();
+                    inputBufferLock->unlock();
+                    outputBufferLock->unlock();
                 }
 
                 if (bufferSize > 0) {
