@@ -61,10 +61,10 @@ bool Server::inErrorState() {
 void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount) {
 
     int counter = 0;
-    while(in_buffer_overflow()) {
-        std::this_thread::sleep_for (std::chrono::microseconds(15));
+    while(inputBuffer.size() > (blockSize * 3) || in_buffer_overflow()) {
         counter += 1;
-        if (counter > 18) break;
+        if (counter > 25) break;
+        std::this_thread::sleep_for (std::chrono::microseconds(15));
     }
 
 
@@ -72,7 +72,15 @@ void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
     inputBuffer.push_front(frame);
     inputBufferLock->unlock();
     
-    localSettings.inputChannels = channelCount;
+    if (localSettings.inputChannels != channelCount) {
+        localSettings.inputChannels = channelCount;
+        inputBufferLock->lock();
+        outputBufferLock->lock();
+        inputBuffer.clear();
+        outputBuffer.clear();
+        inputBufferLock->unlock();
+        outputBufferLock->unlock();
+    }
 }
 
 dsp::Frame<engine::PORT_MAX_CHANNELS, float> Server::getData() {
@@ -268,7 +276,7 @@ void Server::ServerLoop() {
             }
 
 
-            std::this_thread::sleep_for (std::chrono::microseconds(2));
+            std::this_thread::sleep_for (std::chrono::microseconds(12));
 
         }
 

@@ -74,15 +74,23 @@ void Client::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
         inputBuffer.push_front(frame);
         inputBufferLock->unlock();
     }
-    localSettings.inputChannels = channelCount;
+
+    if (localSettings.inputChannels != channelCount) {
+        localSettings.inputChannels = channelCount;
+        inputBufferLock->lock();
+        outputBufferLock->lock();
+        inputBuffer.clear();
+        outputBuffer.clear();
+        inputBufferLock->unlock();
+        outputBufferLock->unlock();
+    }
 }
 
 dsp::Frame<engine::PORT_MAX_CHANNELS, float> Client::getData() {
     int counter = 0;
     while(outputBuffer.empty()) {
-        std::this_thread::sleep_for (std::chrono::microseconds(1));
+        std::this_thread::sleep_for (std::chrono::microseconds(12));
         counter += 1;
-
         if (counter > 4) break;
     }
 
@@ -235,8 +243,8 @@ void Client::clientLoop() {
 
 
                     //Buffer is full... wait?
-                    while (out_buffer_overflow()) {
-                        std::this_thread::sleep_for (std::chrono::microseconds(1));
+                    while (outputBuffer.size() > (packet->len * 3) || out_buffer_overflow()) {
+                        std::this_thread::sleep_for (std::chrono::microseconds(12));
                     }
                     outputBufferLock->lock();
                     outputBuffer.push_front(sample);
@@ -291,7 +299,7 @@ void Client::clientLoop() {
                     }
                 }
 
-                std::this_thread::sleep_for (std::chrono::microseconds(2));
+                std::this_thread::sleep_for(std::chrono::microseconds(2));
 
             }
 
