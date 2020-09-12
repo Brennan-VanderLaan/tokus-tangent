@@ -69,6 +69,12 @@ void Client::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
         if (counter > 4) break;
     }
 
+    if (channelCount == 0) {
+        inputBufferLock->lock();
+        inputBuffer.clear();
+        inputBufferLock->unlock();
+    }
+
     if (!in_buffer_overflow()) {
         inputBufferLock->lock();
         inputBuffer.push_front(frame);

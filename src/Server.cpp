@@ -67,6 +67,11 @@ void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
         std::this_thread::sleep_for (std::chrono::microseconds(15));
     }
 
+    if (channelCount == 0) {
+        inputBufferLock->lock();
+        inputBuffer.clear();
+        inputBufferLock->unlock();
+    }
 
     inputBufferLock->lock();
     inputBuffer.push_front(frame);
