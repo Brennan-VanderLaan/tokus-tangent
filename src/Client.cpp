@@ -229,6 +229,7 @@ void Client::clientLoop() {
                     if (err == SOCKET_ERROR) {
                         INFO("Error receiving datapacket %ld", WSAGetLastError());
                         running = false;
+                        errorState = true;
                         break;
                     }
                 }
@@ -286,6 +287,7 @@ void Client::clientLoop() {
                 if (err == SOCKET_ERROR) {
                     INFO("Error sending packet... %d", WSAGetLastError());
                     running = false;
+                    errorState = true;
                     break;
                 }
 
@@ -295,6 +297,7 @@ void Client::clientLoop() {
                     if (err == SOCKET_ERROR) {
                         INFO("Error sending data... %ld", WSAGetLastError());
                         running = false;
+                        errorState = true;
                         break;
                     }
                 }
