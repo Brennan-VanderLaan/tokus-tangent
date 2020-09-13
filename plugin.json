@@ -26,13 +26,6 @@
       "tags": [
         "External"
       ]
-    }, {
-      "slug": "RadioBroadcast",
-      "name": "RadioBroadcast",
-      "description": "A broadcaster for VCVRadio",
-      "tags": [
-        "External"
-      ]
     }
   ]
 }
