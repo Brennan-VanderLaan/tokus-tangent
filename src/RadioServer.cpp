@@ -45,6 +45,9 @@ struct RadioServer : Module {
     TextField* blockSizeFieldWidget;
     TextField* bufferSizeFieldWidget;
 
+    TextField* inputBufferPosition;
+    TextField* outputBufferPosition;
+
     enum ParamIds {
         STATION_PARAM,
         LEVEL_PARAM,
@@ -162,9 +165,12 @@ struct RadioServer : Module {
     void interval() {
         intervalCounter += 1;
 
-        if (intervalCounter > 10000) {
+        if (intervalCounter > 8000) {
             intervalCounter = 0;
 
+
+            inputBufferPosition->setText(std::to_string(server.getInputBufferSize()));
+            outputBufferPosition->setText(std::to_string(server.getOutputBufferSize()));
 
             if (bufferSizeFieldWidget->text.length() > 0) {
                 try {
@@ -256,6 +262,9 @@ struct RadioServerWidget : ModuleWidget {
     TextField* blockSizeField;
     TextField* bufferSizeField;
 
+    TextField* inputBufferPosition;
+    TextField* outputBufferPosition;
+
     RadioServerWidget(RadioServer* module) {
         setModule(module);
         setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/RServer.svg")));
@@ -302,6 +311,23 @@ struct RadioServerWidget : ModuleWidget {
         bufferSizeField->multiline = false;
         if (module) module->bufferSizeFieldWidget = bufferSizeField;
         addChild(bufferSizeField);
+
+        inputBufferPosition = createWidget<TextField>(mm2px(Vec(20, 87)));
+        inputBufferPosition->box.size = mm2px(Vec(20, 8));
+        inputBufferPosition->placeholder = "4096";
+        inputBufferPosition->setText("4096");
+        inputBufferPosition->multiline = false;
+        if (module) module->inputBufferPosition = inputBufferPosition;
+        addChild(inputBufferPosition);
+
+        outputBufferPosition = createWidget<TextField>(mm2px(Vec(20, 111)));
+        outputBufferPosition->box.size = mm2px(Vec(20, 8));
+        outputBufferPosition->placeholder = "4096";
+        outputBufferPosition->setText("4096");
+        outputBufferPosition->multiline = false;
+        if (module) module->outputBufferPosition = outputBufferPosition;
+        addChild(outputBufferPosition);
+
     }
 
     struct RadioTextItem : MenuItem {

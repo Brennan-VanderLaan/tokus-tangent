@@ -58,6 +58,14 @@ bool Server::inErrorState() {
     return errorState;
 }
 
+int Server::getInputBufferSize() {
+    return inputBuffer.size();
+}
+
+int Server::getOutputBufferSize() {
+    return outputBuffer.size();
+}
+
 void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount) {
 
     int counter = 0;

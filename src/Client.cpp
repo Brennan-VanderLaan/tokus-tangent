@@ -59,6 +59,15 @@ bool Client::inErrorState() {
     return errorState;
 }
 
+
+int Client::getInputBufferSize() {
+    return inputBuffer.size();
+}
+
+int Client::getOutputBufferSize() {
+    return outputBuffer.size();
+}
+
 void Client::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int channelCount) {
 
     int counter = 0;
@@ -218,7 +227,7 @@ void Client::clientLoop() {
                 packet = (DataPacket *)packetBuffer;
                 //Figure out the size of the data trailer
                 int bufferSize = floatSize * packet->channels * packet->len;
-                int returnLimit = packet->len;
+                int returnLimit = packet->len + 64;
 
                 if (packet->channels != remoteSettings.inputChannels) {
                     remoteSettings.inputChannels = packet->channels;

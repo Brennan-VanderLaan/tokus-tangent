@@ -29,6 +29,9 @@ public:
 
     void setConnectionSettings(ConnectionNegotiation settings);
 
+    int getInputBufferSize();
+    int getOutputBufferSize();
+
     int getRemoteChannelCount();
     int getBlockSize();
     void setBlockSize(int size);

@@ -36,6 +36,9 @@ struct RadioClient : Module {
     TextField *blockSizeFieldWidget;
     TextField *bufferSizeFieldWidget;
 
+    TextField* inputBufferPosition;
+    TextField* outputBufferPosition;
+
     Client client;
 
     enum ParamIds {
@@ -161,6 +164,10 @@ struct RadioClient : Module {
 
             blockSizeFieldWidget->setText(std::to_string(client.getBlockSize()));
 
+            inputBufferPosition->setText(std::to_string(client.getInputBufferSize()));
+            outputBufferPosition->setText(std::to_string(client.getOutputBufferSize()));
+
+
             try {
                 if (stoi(bufferSizeFieldWidget->text) != client.getBufferSize()) {
                     client.setBufferSize(stoi(bufferSizeFieldWidget->text));
@@ -235,6 +242,9 @@ struct RadioClientWidget : ModuleWidget {
     TextField *blockSizeField;
     TextField *bufferSizeField;
 
+    TextField* inputBufferPosition;
+    TextField* outputBufferPosition;
+    
     RadioClientWidget(RadioClient *module) {
         setModule(module);
         setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/RClient.svg")));
@@ -262,7 +272,7 @@ struct RadioClientWidget : ModuleWidget {
         addInput(createInputCentered<PJ301MPort>(mm2px(Vec(6.862, 93.0)), module, RadioClient::INPUT_JACK));
 
         hostField = createWidget<TextField>(mm2px(Vec(2.8, 18)));
-        hostField->box.size = mm2px(Vec(30, 8));
+        hostField->box.size = mm2px(Vec(35, 8));
         hostField->placeholder = "127.0.0.1";
         hostField->text = "127.0.0.1";
         hostField->multiline = false;
@@ -292,6 +302,24 @@ struct RadioClientWidget : ModuleWidget {
         bufferSizeField->multiline = false;
         if (module) module->bufferSizeFieldWidget = bufferSizeField;
         addChild(bufferSizeField);
+
+        inputBufferPosition = createWidget<TextField>(mm2px(Vec(20, 87)));
+        inputBufferPosition->box.size = mm2px(Vec(20, 8));
+        inputBufferPosition->placeholder = "4096";
+        inputBufferPosition->setText("4096");
+        inputBufferPosition->multiline = false;
+        if (module) module->inputBufferPosition = inputBufferPosition;
+        addChild(inputBufferPosition);
+
+        outputBufferPosition = createWidget<TextField>(mm2px(Vec(20, 111)));
+        outputBufferPosition->box.size = mm2px(Vec(20, 8));
+        outputBufferPosition->placeholder = "4096";
+        outputBufferPosition->setText("4096");
+        outputBufferPosition->multiline = false;
+        if (module) module->outputBufferPosition = outputBufferPosition;
+        addChild(outputBufferPosition);
+
+
     }
 
     struct RadioTextItem : MenuItem {
