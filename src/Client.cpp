@@ -259,7 +259,7 @@ void Client::clientLoop() {
 
 
                     //Buffer is full... wait?
-                    while (outputBuffer.size() > (packet->len * 3) || out_buffer_overflow()) {
+                    while (outputBuffer.size() > (int)(packet->len * 2.2) || out_buffer_overflow()) {
                         std::this_thread::sleep_for (std::chrono::microseconds(12));
                     }
                     outputBufferLock->lock();
