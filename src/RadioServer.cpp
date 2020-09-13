@@ -358,6 +358,38 @@ struct RadioServerWidget : ModuleWidget {
 
     }
 
+    json_t* toJson() override 
+    {
+        json_t* rootJ = ModuleWidget::toJson();
+            json_object_set_new(rootJ, "portField", json_string(portField->text.c_str()));
+            json_object_set_new(rootJ, "bufferField", json_string(bufferSizeField->text.c_str()));
+            json_object_set_new(rootJ, "blockField", json_string(blockSizeField->text.c_str()));
+        return rootJ;
+    }
+
+    void fromJson(json_t* rootJ) override
+    {
+        ModuleWidget::fromJson(rootJ);
+
+        json_t* portJ = json_object_get(rootJ, "portField");
+        if(portJ)
+        {
+            portField->text = json_string_value(portJ);
+        }
+
+        json_t* bufferJ = json_object_get(rootJ, "bufferField");
+        if(bufferJ)
+        {
+            bufferSizeField->text = json_string_value(bufferJ);
+        }
+
+        json_t* blockJ = json_object_get(rootJ, "blockField");
+        if(blockJ)
+        {
+            blockSizeField->text = json_string_value(blockJ);
+        }
+    }
+
 };
 
 
