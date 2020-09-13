@@ -8,6 +8,8 @@
 
 struct DataPacket {
     int len;
+    int inputBufferSize;
+    int outputBufferSize;
     int channels;
 };
 

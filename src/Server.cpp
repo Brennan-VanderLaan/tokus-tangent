@@ -71,7 +71,7 @@ void Server::pushData(dsp::Frame<engine::PORT_MAX_CHANNELS, float> frame, int ch
     int counter = 0;
     while(inputBuffer.size() > (blockSize * 3) || in_buffer_overflow()) {
         counter += 1;
-        if (counter > 25) break;
+        if (counter > 250) break;
         std::this_thread::sleep_for (std::chrono::microseconds(15));
     }
 
@@ -210,7 +210,8 @@ void Server::ServerLoop() {
                 packet = (DataPacket *)packetBuffer;
                 packet->channels = localSettings.inputChannels;
                 packet->len = blockSize;
-
+                packet->inputBufferSize = inputBuffer.size();
+                packet->outputBufferSize = outputBuffer.size();
                 int bufferSize = floatSize * packet->channels * packet->len;
                 float * samples = (float*) buffer;
 
@@ -265,6 +266,16 @@ void Server::ServerLoop() {
                     inputBufferLock->unlock();
                     outputBufferLock->unlock();
                 }
+
+                if (inputBuffer.size() > 4 * bufferSize) {
+                    inputBufferLock->lock();
+                    outputBufferLock->lock();
+                    inputBuffer.clear();
+                    outputBuffer.clear();
+                    inputBufferLock->unlock();
+                    outputBufferLock->unlock();
+                }
+
 
                 if (bufferSize > 0) {
 

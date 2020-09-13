@@ -106,7 +106,7 @@ dsp::Frame<engine::PORT_MAX_CHANNELS, float> Client::getData() {
     while(outputBuffer.empty()) {
         std::this_thread::sleep_for (std::chrono::microseconds(12));
         counter += 1;
-        if (counter > 4) break;
+        if (counter > 25) break;
     }
 
     outputBufferLock->lock();
@@ -278,6 +278,8 @@ void Client::clientLoop() {
                 blockSize = packet->len;
                 inputBufferLock->unlock();
                 packet->channels = localSettings.inputChannels;
+                packet->inputBufferSize = inputBuffer.size();
+                packet->outputBufferSize = outputBuffer.size();
 
                 //Load the buffer
                 bufferSize = floatSize * packet->channels * packet->len;
