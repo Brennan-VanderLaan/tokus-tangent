@@ -368,7 +368,7 @@ void Server::setConnectionSettings(ConnectionNegotiation settings) {
 bool Server::negotiateSettings() {
     ConnectionNegotiation *neg;
 
-    char buffer[sizeof(ConnectionNegotiation) + 1] = {};
+    char buffer[sizeof(ConnectionNegotiation)] = {};
     negotiating = true;
     INFO("Sending negotionation info...");
 

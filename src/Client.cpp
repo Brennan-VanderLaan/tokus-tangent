@@ -229,6 +229,7 @@ void Client::clientLoop() {
                 int bufferSize = floatSize * packet->channels * packet->len;
                 int returnLimit = packet->len + 64;
 
+
                 if (packet->channels != remoteSettings.inputChannels) {
                     remoteSettings.inputChannels = packet->channels;
                     inputBufferLock->lock();
@@ -240,6 +241,9 @@ void Client::clientLoop() {
                 }
 
                 if (bufferSize > 0) {
+
+                    setBufferSize(bufferSize);
+
                     err = recv(clientSocket, buffer, bufferSize, MSG_WAITALL);
                     if (err == SOCKET_ERROR) {
                         INFO("Error receiving datapacket %ld", WSAGetLastError());

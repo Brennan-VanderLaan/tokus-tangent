@@ -5,27 +5,28 @@
 #ifndef TOKUS_TANGENT_NETWORK_H
 #define TOKUS_TANGENT_NETWORK_H
 
+#include <stdint.h>
 
 struct DataPacket {
-    int len;
-    int inputBufferSize;
-    int outputBufferSize;
-    int channels;
+    uint32_t len;
+    uint32_t inputBufferSize;
+    uint32_t outputBufferSize;
+    uint8_t channels;
 };
 
 struct ConnectionNegotiation {
-    int inputChannels;
-    int outputChannels;
-    int blockSize;
-    int bufferSize;
-    int sampleRate;
-};
+    uint8_t inputChannels;  //256
+    uint8_t outputChannels; //256
+    uint32_t blockSize;
+    uint32_t bufferSize;
+    uint32_t sampleRate;
+}; //112
 
 struct FancyPacket {
-    int len;
-    int inputChannels;
-    int outputChannels;
-    int sampleRate;
+    uint32_t len;
+    uint8_t inputChannels;
+    uint8_t outputChannels;
+    uint32_t sampleRate;
     float * data;
 };
 
