@@ -143,7 +143,7 @@ void Server::setBlockSize(int size) {
 void Server::ServerLoop() {
 
     INFO("Starting Server loop");
-    serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    serverSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
     u_long on = 1;
     int err = setsockopt(serverSocket, SOL_SOCKET,  SO_REUSEADDR, (char *)&on, sizeof(on));

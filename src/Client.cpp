@@ -106,7 +106,7 @@ dsp::Frame<engine::PORT_MAX_CHANNELS, float> Client::getData() {
     while(outputBuffer.empty()) {
         std::this_thread::sleep_for (std::chrono::microseconds(12));
         counter += 1;
-        if (counter > 25) break;
+        if (counter > 1000) break;
     }
 
     outputBufferLock->lock();
@@ -162,11 +162,16 @@ void Client::clientLoop() {
 
     INFO("Starting client loop");
 
-    clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    clientSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (clientSocket == INVALID_SOCKET) {
         INFO("socket function failed with error: %ld\n", WSAGetLastError());
         running = false;
     }
+
+    int conv;
+    int user;
+
+    ikcpcb *kcp = ikcp_create(conv, (void  *)&user);
 
     DWORD timeout = 5000;
     setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout);
@@ -174,7 +179,7 @@ void Client::clientLoop() {
     struct addrinfo hints = {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_protocol = IPPROTO_UDP;
 
     struct addrinfo * result = NULL;
     //This gets us a valid address to connect to *if* we can
@@ -201,7 +206,7 @@ void Client::clientLoop() {
     }
 
     if (!negotiateSettings()) {
-        running = false;
+        running = false;    
         INFO("Failed to negotiate...");
     } else {
         INFO("CLIENT THREAD STARTING");
@@ -217,7 +222,8 @@ void Client::clientLoop() {
                 DataPacket * packet = NULL;
                 char packetBuffer[sizeof(DataPacket)] = {};
 
-                err = recv(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL);
+                int len;
+                err = recvfrom(clientSocket, packetBuffer, sizeof(DataPacket), MSG_WAITALL, (sockaddr *)&result, &len);
                 if (err == SOCKET_ERROR) {
                     INFO("Error receiving datapacket %ld", WSAGetLastError());
                     running = false;

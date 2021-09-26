@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CLionExternalBuildManager">
+    <target id="34f478bc-0d2d-451a-b664-da6ce654646f" name="Plugin" defaultType="MAKE">
+      <configuration id="c4d0765f-c611-4f88-85f5-21f86db5fd7a" name="Plugin" toolchainName="MinGW">
+        <build type="MAKE">
+          <make targetName="install" />
+        </build>
+        <clean type="MAKE">
+          <make targetName="clean" />
+        </clean>
+      </configuration>
+    </target>
+  </component>
+</project>

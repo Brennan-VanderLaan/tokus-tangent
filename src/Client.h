@@ -12,6 +12,7 @@
 #include "plugin.hpp"
 #include <vector>
 #include <mutex>
+#include "ikcp.h"
 
 class Client {
 

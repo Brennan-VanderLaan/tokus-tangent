@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Clean" type="MAKEFILE_TARGET_RUN_CONFIGURATION" factoryName="Makefile">
+    <makefile filename="C:\projects\tokus-tangent\Makefile" target="clean" workingDirectory="" arguments="">
+      <envs>
+        <env name="CONSOLE_WIDTH" value="200" />
+      </envs>
+    </makefile>
+    <method v="2" />
+  </configuration>
+</component>
